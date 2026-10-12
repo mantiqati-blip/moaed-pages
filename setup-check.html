@@ -1,0 +1,42 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>فحص الإعداد — موعد أنوثة</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBF5F7;--card:#fff;--ink:#2A1722;--mute:#7A6571;--line:#EBDCE3;--ac:#B83A6B;--ok:#1E8E5A;--bad:#C0392B;--warn:#B7791F;padding-top:env(safe-area-inset-top,0px)}
+@media(prefers-color-scheme:dark){:root{--bg:#1A1017;--card:#26171F;--ink:#F6E9EF;--mute:#B79DAA;--line:#3A2630;--ac:#E26C9A;--ok:#4CC38A;--bad:#F0776A;--warn:#E5B45C}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:400 14px Cairo,Tahoma,Arial,sans-serif}main{max-width:640px;margin:auto;padding:16px}
+h1{font-size:20px;font-weight:800;color:var(--ac)}.row{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 16px;margin-bottom:8px}.m{color:var(--mute);font-size:12.5px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.w{color:var(--warn)}button{min-height:44px;border:0;border-radius:12px;padding:0 16px;background:var(--ac);color:#fff;font:600 14px Cairo,Tahoma,sans-serif;cursor:pointer}
+</style></head><body><main><h1>فحص إعداد المشروع</h1>
+<p class="m">يتحقق من البيانات والقواعد وحساب الأدمن. يجري اختبارات أمان تُحاول كتابات ممنوعة ويجب أن تُرفض.</p><button id="go">ابدئي الفحص</button><div id="out" style="margin-top:16px"></div></main>
+<script type="module">
+import { configured, auth, db } from './js/fb.js';
+import { evaluate, verdict } from './js/check-logic.js';
+const out = document.getElementById('out');
+async function run() {
+  const r = { configured }; if (!configured) return render(evaluate(r));
+  const A = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
+  const F = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+  await auth.authStateReady?.();
+  if (!auth.currentUser) { try { await A.signInAnonymously(auth); r.anonOk = true; } catch (e) { r.anonOk = false; } } else r.anonOk = true;
+  const uid = auth.currentUser?.uid;
+  try { const s = (await F.getDoc(F.doc(db, 'platform', 'settings'))).data(); r.settings = { ok: !!s, fee: s?.customerFee, cut: s?.salonCut }; } catch (e) { r.settings = { ok: false }; }
+  try { const g = await F.getDocs(F.collection(db, 'governorates')), a = await F.getDocs(F.collection(db, 'areas')); r.geo = { ok: true, gov: g.size, areas: a.size }; } catch (e) { r.geo = { ok: false }; }
+  let me = { signedIn: false }; try { const u = (await F.getDoc(F.doc(db, 'users', uid))).data(); me = { signedIn: !!(u && u.role), role: u?.role, status: u?.status }; } catch (e) {}
+  r.me = me;
+  const denied = async (fn) => { try { await fn(); return false; } catch (e) { return e.code === 'permission-denied' ? true : null; } };
+  const isAdmin = me.role === 'admin';
+  r.denied = {
+    platformWrite: isAdmin ? null : await denied(() => F.setDoc(F.doc(db, 'platform', '_probe'), { x: 1 })),
+    selfAdmin: isAdmin ? null : await denied(() => F.setDoc(F.doc(db, 'users', uid), { role: 'admin', status: 'active', salonId: null, name: 'x' })),
+    badBooking: await denied(() => F.setDoc(F.doc(db, 'bookings', '_probe'), { customerUid: uid, salonId: 'x', staffId: 'x', start: Date.now() + 864e5, end: Date.now() + 864e5 + 18e5, durationMin: 30, servicesTotal: 1, customerFee: 0, salonCut: 0, discount: 0, status: 'confirmed', source: 'online', services: [], customerName: '', customerPhone: '' })),
+  };
+  render(evaluate(r));
+}
+function render(L) {
+  const v = verdict(L), msg = { pass: 'كل الفحوصات نجحت.', partial: 'لا فشل، لكن بعض الفحوصات لم تُجرَ.', fail: 'يوجد فشل. راجعي البنود الحمراء.' }[v];
+  out.innerHTML = `<div class="row"><b class="${v === 'pass' ? 'ok' : v === 'fail' ? 'bad' : 'w'}">${msg}</b></div>` + L.map((x) =>
+    `<div class="row"><b class="${x.ok === true ? 'ok' : x.ok === false ? 'bad' : 'w'}">${x.ok === true ? '✓' : x.ok === false ? '✗' : '؟'}</b> ${x.name}${x.ok === true ? '' : `<div class="m">${x.hint}</div>`}</div>`).join('');
+}
+document.getElementById('go').onclick = () => { out.textContent = 'جارٍ الفحص...'; run().catch((e) => { out.innerHTML = `<div class="row bad">تعذر الفحص: ${e.message}</div>`; }); };
+</script></body></html>

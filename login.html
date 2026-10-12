@@ -1,0 +1,42 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>تسجيل الدخول — موعد أنوثة</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBF5F7;--card:#fff;--ink:#2A1722;--mute:#7A6571;--line:#EBDCE3;--ac:#B83A6B;--ac2:#8E2A52;--soft:#F8E3EC;--bad:#C0392B;padding-top:env(safe-area-inset-top,0px)}
+@media(prefers-color-scheme:dark){:root{--bg:#1A1017;--card:#26171F;--ink:#F6E9EF;--mute:#B79DAA;--line:#3A2630;--ac:#E26C9A;--ac2:#C94F80;--soft:#3A2230;--bad:#F0776A}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:400 14px Cairo,Tahoma,Arial,sans-serif}
+main{max-width:420px;margin:auto;padding:32px 16px}h1{font-size:20px;font-weight:800;color:var(--ac);margin:0 0 4px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-top:16px}
+label{display:block;margin:12px 0 4px;font-weight:600}input{width:100%;min-height:44px;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--bg);color:var(--ink);font:400 14px Cairo,Tahoma,sans-serif}
+button{min-height:44px;width:100%;margin-top:16px;border:0;border-radius:12px;background:var(--ac);color:#fff;font:600 14px Cairo,Tahoma,sans-serif;cursor:pointer}button:disabled{opacity:.5}
+.err{background:var(--soft);color:var(--bad);padding:12px;border-radius:12px;margin-top:12px}.m{color:var(--mute);font-size:12.5px}
+</style></head><body><main><h1>موعد أنوثة</h1><p class="m">دخول صاحبة الصالون والموظفة والإدارة</p>
+<form class="card" id="f"><label for="u">اسم المستخدم</label><input id="u" dir="ltr" autocomplete="username" autocapitalize="none" required>
+<label for="p">كلمة السر</label><input id="p" type="password" dir="ltr" autocomplete="current-password" required>
+<div class="err" id="e" hidden></div><button id="b">دخول</button></form>
+<p class="m">نسيتِ كلمة السر؟ تواصلي مع الإدارة، فهي التي تغيّرها.</p></main>
+<script type="module">
+import { configured, auth, db } from './js/fb.js';
+import { usernameToEmail, homeFor, authErrorMessage, lockState, afterFailure } from './js/login-logic.js';
+const $ = (i) => document.getElementById(i), show = (m) => { $('e').hidden = !m; $('e').textContent = m || ''; };
+if (!configured) show('لم تُضبط إعدادات Firebase بعد (public/js/firebase-config.js).');
+$('f').addEventListener('submit', async (ev) => {
+  ev.preventDefault(); show(''); if (!configured) return;
+  const name = $('u').value.trim().toLowerCase(), key = 'lk_' + name, now = Date.now();
+  let rec = null; try { rec = JSON.parse(localStorage.getItem(key)); } catch (e) {}
+  const st = lockState(rec, now); if (st.locked) return show(`تم إيقاف المحاولات مؤقتًا. حاولي بعد ${st.left} دقيقة.`);
+  let email; try { email = usernameToEmail(name); } catch (e) { return show('اسم المستخدم: حروف إنجليزية صغيرة وأرقام فقط.'); }
+  $('b').disabled = true;
+  try {
+    const { signInWithEmailAndPassword, signOut } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
+    const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+    const cred = await signInWithEmailAndPassword(auth, email, $('p').value);
+    const snap = await getDoc(doc(db, 'users', cred.user.uid)), u = snap.exists() ? snap.data() : null, home = u && u.status === 'active' ? homeFor(u.role) : null;
+    if (!home) { await signOut(auth); return show('هذا الحساب غير مفعّل أو بلا صلاحية. تواصلي مع الإدارة.'); }
+    try { localStorage.removeItem(key); } catch (e) {}
+    location.replace(home);
+  } catch (e) {
+    try { localStorage.setItem(key, JSON.stringify(afterFailure(rec, now))); } catch (x) {}
+    show(authErrorMessage(e.code));
+  } finally { $('b').disabled = false; }
+});
+</script></body></html>
