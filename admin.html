@@ -1,0 +1,95 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>لوحة الأدمن — موعد أنوثة</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBF5F7;--card:#fff;--ink:#2A1722;--mute:#7A6571;--line:#EBDCE3;--ac:#B83A6B;--soft:#F8E3EC;--ok:#1a7f4b;--bad:#c0392b}
+*{box-sizing:border-box}body{font-family:Cairo,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+header b{color:var(--ac);font-size:20px}main{max-width:720px;margin:0 auto;padding:18px}
+nav{display:flex;gap:8px;margin-bottom:16px}nav button{flex:1}
+button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:10px 16px;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+button.on,button.p{background:var(--ac);border-color:var(--ac);color:#fff}button:disabled{opacity:.5}
+.row{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:10px 0}
+.s{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.m{color:var(--mute);font-size:14px}
+label{display:block;font-weight:600;margin:12px 0 4px}input,select{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:520px){.g2{grid-template-columns:1fr}}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.tag{background:var(--soft);border-radius:8px;padding:2px 10px;font-size:13px}
+.tag.off{background:#eee;color:var(--mute)}[dir=ltr]{text-align:left}
+</style></head><body>
+<header><b>لوحة الأدمن</b><span><span class="m" id="me"></span> <button id="out" hidden>خروج</button></span></header>
+<main id="app"><div class="row">جارٍ التحقق من الدخول...</div></main>
+<script type="module">
+import { configured, auth, db } from './js/fb.js';
+import { firebaseConfig } from './js/firebase-config.js';
+const $ = (i) => document.getElementById(i), app = $('app');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const AD = '٠١٢٣٤٥٦٧٨٩', latin = (s) => String(s).replace(/[٠-٩]/g, (d) => AD.indexOf(d));
+if (!configured) { app.innerHTML = '<div class="row bad">إعدادات Firebase غير مضبوطة.</div>'; throw 0; }
+const A = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
+const F = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+const App = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js');
+await auth.authStateReady?.();
+const u = auth.currentUser; let role = null, name = '';
+if (u && !u.isAnonymous) { try { const d = (await F.getDoc(F.doc(db, 'users', u.uid))).data(); if (d?.status === 'active') { role = d.role; name = d.name; } } catch (e) {} }
+if (role !== 'admin') { app.innerHTML = '<div class="row">هذه الصفحة للأدمن فقط. <a href="login.html">سجّلي الدخول</a> بحساب الإدارة.</div>'; throw 0; }
+$('me').textContent = name || 'أدمن'; $('out').hidden = false; $('out').onclick = async () => { await A.signOut(auth); location.href = 'login.html'; };
+const audit = (action, target) => F.addDoc(F.collection(db, 'audit'), { by: u.uid, action, target, at: F.serverTimestamp() });
+let gov = [], areas = [];
+const [g, a] = await Promise.all([F.getDocs(F.collection(db, 'governorates')), F.getDocs(F.collection(db, 'areas'))]);
+gov = g.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
+areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
+app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button></nav><div id="v"></div>';
+const tab = (n) => { $('t1').className = n === 1 ? 'on' : ''; $('t2').className = n === 2 ? 'on' : ''; n === 1 ? list() : form(); };
+$('t1').onclick = () => tab(1); $('t2').onclick = () => tab(2);
+async function list() {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+  const s = await F.getDocs(F.collection(db, 'salons')), L = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+  if (!L.length) { v.innerHTML = '<div class="row">لا توجد صالونات بعد. أضيفي أول صالون من تبويب «إضافة صالون».</div>'; return; }
+  v.innerHTML = L.map((x) => `<div class="row s"><div><b>${esc(x.name)}</b> <span class="tag ${x.status === 'active' ? '' : 'off'}">${x.status === 'active' ? 'فعّال' : 'موقوف'}</span>
+    <div class="m" dir="ltr">/s/${esc(x.slug)} · ${esc(x.ownerPhone)}</div></div><button data-id="${esc(x.id)}" data-st="${x.status === 'active' ? 'suspended' : 'active'}">${x.status === 'active' ? 'إيقاف' : 'تفعيل'}</button></div>`).join('');
+  v.querySelectorAll('button').forEach((b) => b.onclick = async () => {
+    const st = b.dataset.st; if (st === 'suspended' && !confirm('إيقاف الصالون؟ لن يظهر للزبونات.')) return;
+    b.disabled = true; try { await F.updateDoc(F.doc(db, 'salons', b.dataset.id), { status: st }); await audit('salon.' + st, b.dataset.id); list(); } catch (e) { alert('تعذر التحديث: ' + e.code); b.disabled = false; }
+  });
+}
+function form() {
+  const v = $('v');
+  v.innerHTML = `<form id="f" class="row"><label>اسم الصالون</label><input id="n" required>
+  <label>رابط الصالون (حروف إنجليزية صغيرة وأرقام وشرطة)</label><input id="sl" dir="ltr" pattern="[a-z0-9]+(-[a-z0-9]+)*" required>
+  <div class="g2"><div><label>المحافظة</label><select id="gv" required><option value="">اختاري</option>${gov.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+  <div><label>المنطقة</label><select id="ar" required><option value="">اختاري المحافظة أولًا</option></select></div></div>
+  <label>اسم صاحبة الصالون (ثلاثي)</label><input id="on" required>
+  <label>رقم هاتفها (07XXXXXXXXX)</label><input id="ph" dir="ltr" inputmode="numeric" required>
+  <div class="g2"><div><label>اسم المستخدم</label><input id="un" dir="ltr" pattern="[a-z0-9]+" required></div>
+  <div><label>كلمة السر المؤقتة (٨ خانات فأكثر وفيها رقم)</label><input id="pw" dir="ltr" type="text" minlength="8" required></div></div>
+  <div id="msg" class="m" role="status"></div><button class="p" id="go">إنشاء الصالون والحساب</button></form>`;
+  $('gv').onchange = (e) => { $('ar').innerHTML = '<option value="">اختاري</option>' + areas.filter((x) => x.governorateId === e.target.value).map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join(''); };
+  $('f').onsubmit = async (ev) => {
+    ev.preventDefault(); const msg = (t, c = '') => { $('msg').className = 'm ' + c; $('msg').textContent = t; };
+    const slug = $('sl').value.trim(), un = $('un').value.trim().toLowerCase(), ph = latin($('ph').value.trim()), pw = $('pw').value, on = $('on').value.trim();
+    if (on.split(/\s+/).length < 3) return msg('اسم صاحبة الصالون لازم يكون ثلاثيًا.', 'bad');
+    if (!/^07[3-9]\d{8}$/.test(ph)) return msg('رقم الهاتف غير صحيح (مثال: 07701234567).', 'bad');
+    if (pw.length < 8 || !/\d/.test(pw)) return msg('كلمة السر: ٨ خانات فأكثر وفيها رقم.', 'bad');
+    $('go').disabled = true; msg('جارٍ الإنشاء...');
+    let sApp = null;
+    try {
+      if ((await F.getDoc(F.doc(db, 'salons', slug))).exists()) throw { code: 'slug-taken' };
+      sApp = App.initializeApp(firebaseConfig, 'second-' + Date.now()); const sAuth = A.getAuth(sApp);
+      const cred = await A.createUserWithEmailAndPassword(sAuth, un + '@local.salon', pw), ouid = cred.user.uid; await A.signOut(sAuth);
+      try {
+        const b = F.writeBatch(db);
+        b.set(F.doc(db, 'users', ouid), { role: 'owner', status: 'active', salonId: slug, name: on });
+        b.set(F.doc(db, 'salons', slug), { name: $('n').value.trim(), slug, status: 'active', ownerUid: ouid, ownerPhone: ph, governorateId: $('gv').value, areaId: $('ar').value, createdAt: F.serverTimestamp(), createdBy: u.uid });
+        await b.commit();
+      } catch (e) { throw { code: 'partial', msg: `أُنشئ حساب ${un} لكن فشل حفظ الصالون (${e.code}). احذفي الحساب من Authentication ثم أعيدي.` }; }
+      await audit('salon.create', slug).catch(() => {});
+      msg(`تم. الصالون: /s/${slug} واسم المستخدم: ${un}. سلّمي كلمة السر لصاحبة الصالون ولا تحتفظي بها.`, 'ok'); $('f').reset();
+    } catch (e) {
+      msg(e.msg || ({ 'slug-taken': 'هذا الرابط مستعمل لصالون آخر.', 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.', 'permission-denied': 'القواعد رفضت العملية.' }[e.code] || 'تعذر الإنشاء: ' + (e.code || e.message)), 'bad');
+    } finally { $('go').disabled = false; if (sApp) App.deleteApp(sApp).catch(() => {}); }
+  };
+}
+tab(1);
+</script></body></html>
