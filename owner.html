@@ -1,0 +1,88 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>لوحة الصالون — موعد أنوثة</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBF5F7;--card:#fff;--ink:#2A1722;--mute:#7A6571;--line:#EBDCE3;--ac:#B83A6B;--soft:#F8E3EC;--ok:#1a7f4b;--bad:#c0392b}
+*{box-sizing:border-box}body{font-family:Cairo,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+header b{color:var(--ac);font-size:20px}main{max-width:720px;margin:0 auto;padding:18px}
+nav{display:flex;gap:8px;margin-bottom:16px}nav button{flex:1}
+button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:10px 16px;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+button.on,button.p{background:var(--ac);border-color:var(--ac);color:#fff}button:disabled{opacity:.5}
+.row{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:10px 0}
+.s{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.m{color:var(--mute);font-size:14px}
+label{display:block;font-weight:600;margin:12px 0 4px}input,select{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;width:100%}
+.g3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px}@media(max-width:520px){.g3{grid-template-columns:1fr}}
+.d{display:grid;grid-template-columns:80px 1fr 1fr 70px;gap:8px;align-items:center;margin:8px 0}.d input{padding:8px}.d input[type=checkbox]{width:20px;height:20px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.tag{background:var(--soft);border-radius:8px;padding:2px 10px;font-size:13px}.tag.off{background:#eee;color:var(--mute)}
+</style></head><body>
+<header><b id="sn">لوحة الصالون</b><span><span class="m" id="me"></span> <button id="out" hidden>خروج</button></span></header>
+<main id="app"><div class="row">جارٍ التحقق من الدخول...</div></main>
+<script type="module">
+import { configured, auth, db } from './js/fb.js';
+const $ = (i) => document.getElementById(i), app = $('app');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const latin = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+if (!configured) { app.innerHTML = '<div class="row bad">إعدادات Firebase غير مضبوطة.</div>'; throw 0; }
+const A = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
+const F = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+await auth.authStateReady?.();
+const u = auth.currentUser; let me = null;
+if (u && !u.isAnonymous) { try { me = (await F.getDoc(F.doc(db, 'users', u.uid))).data(); } catch (e) {} }
+if (!me || me.status !== 'active' || !['owner', 'staff'].includes(me.role)) { app.innerHTML = '<div class="row">هذه الصفحة لصاحبة الصالون. <a href="login.html">سجّلي الدخول</a>.</div>'; throw 0; }
+if (me.role !== 'owner') { app.innerHTML = '<div class="row">إدارة الصالون لصاحبته فقط. صفحة الموظفة قادمة لاحقًا.</div>'; throw 0; }
+$('me').textContent = me.name || ''; $('out').hidden = false; $('out').onclick = async () => { await A.signOut(auth); location.href = 'login.html'; };
+const sid = me.salonId, sref = F.doc(db, 'salons', sid);
+const salon = (await F.getDoc(sref)).data() || {}; $('sn').textContent = salon.name || 'لوحة الصالون';
+const note = salon.status === 'active' ? '' : '<div class="row bad">صالونك موقوف حاليًا ولا يظهر للزبونات. تواصلي مع الإدارة.</div>';
+app.innerHTML = note + '<nav><button id="t1" class="on">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff][n - 1](); };
+[1, 2, 3].forEach((i) => $('t' + i).onclick = () => tab(i));
+const msgEl = () => $('msg'), say = (t, c = '') => { msgEl().className = 'm ' + c; msgEl().textContent = t; };
+async function services() {
+  const v = $('v'), col = F.collection(db, 'salons', sid, 'services');
+  const L = (await F.getDocs(col)).docs.map((d) => ({ id: d.id, ...d.data() }));
+  const mins = [15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 240];
+  v.innerHTML = (L.length ? L.map((x) => `<div class="row s"><div><b>${esc(x.name)}</b> <span class="tag ${x.active ? '' : 'off'}">${x.active ? 'فعّالة' : 'موقوفة'}</span>
+    <div class="m">${x.price.toLocaleString('en')} د.ع · ${x.durationMin} دقيقة</div></div><button data-id="${esc(x.id)}" data-a="${x.active ? 0 : 1}">${x.active ? 'إيقاف' : 'تفعيل'}</button></div>`).join('')
+    : '<div class="row">لا توجد خدمات. أضيفي أول خدمة بالأسفل ليظهر صالونك للحجز.</div>') +
+    `<form id="f" class="row"><b>إضافة خدمة</b><div class="g3"><div><label>اسم الخدمة</label><input id="n" required></div>
+    <div><label>السعر (دينار)</label><input id="p" inputmode="numeric" dir="ltr" required></div>
+    <div><label>المدة</label><select id="d">${mins.map((m) => `<option value="${m}">${m} دقيقة</option>`).join('')}</select></div></div>
+    <div id="msg" class="m" role="status"></div><button class="p">حفظ الخدمة</button></form>`;
+  v.querySelectorAll('button[data-id]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await F.updateDoc(F.doc(col, b.dataset.id), { active: b.dataset.a === '1' }); services(); } catch (e) { alert('تعذر التحديث: ' + e.code); b.disabled = false; } });
+  $('f').onsubmit = async (ev) => {
+    ev.preventDefault(); const price = Number(latin($('p').value.replace(/[,،\s]/g, '')));
+    if (!Number.isInteger(price) || price <= 0) return say('السعر لازم يكون رقمًا صحيحًا أكبر من صفر.', 'bad');
+    try { await F.addDoc(col, { name: $('n').value.trim(), price, durationMin: Number($('d').value), active: true, createdAt: F.serverTimestamp() }); services(); } catch (e) { say('تعذر الحفظ: ' + e.code, 'bad'); }
+  };
+}
+const DAYS = [[6, 'السبت'], [0, 'الأحد'], [1, 'الاثنين'], [2, 'الثلاثاء'], [3, 'الأربعاء'], [4, 'الخميس'], [5, 'الجمعة']];
+function hours() {
+  const H = salon.hours || {}, v = $('v');
+  v.innerHTML = `<form id="f" class="row"><b>ساعات الدوام الأسبوعي</b><div class="m">أوقات الحجز تتبع هذه الساعات. علّمي «عطلة» لليوم المغلق.</div>` + DAYS.map(([k, n]) => {
+    const h = H[k] || { open: '10:00', close: '20:00', off: false };
+    return `<div class="d"><span>${n}</span><input type="time" step="900" id="o${k}" value="${h.open}" aria-label="فتح ${n}"><input type="time" step="900" id="c${k}" value="${h.close}" aria-label="إغلاق ${n}"><label style="margin:0"><input type="checkbox" id="x${k}" ${h.off ? 'checked' : ''}> عطلة</label></div>`;
+  }).join('') + '<div id="msg" class="m" role="status"></div><button class="p">حفظ الدوام</button></form>';
+  $('f').onsubmit = async (ev) => {
+    ev.preventDefault(); const out = {};
+    for (const [k, n] of DAYS) { const o = $('o' + k).value, c = $('c' + k).value, off = $('x' + k).checked; if (!off && !(o && c && o < c)) return say(`ساعات ${n}: الإغلاق لازم يكون بعد الفتح.`, 'bad'); out[k] = { open: o, close: c, off }; }
+    try { await F.updateDoc(sref, { hours: out }); salon.hours = out; say('تم حفظ الدوام.', 'ok'); } catch (e) { say('تعذر الحفظ: ' + e.code, 'bad'); }
+  };
+}
+async function staff() {
+  const v = $('v'), col = F.collection(db, 'salons', sid, 'staff');
+  const L = (await F.getDocs(col)).docs.map((d) => ({ id: d.id, ...d.data() }));
+  v.innerHTML = (L.length ? L.map((x) => `<div class="row s"><b>${esc(x.name)}</b><span class="tag ${x.status === 'active' ? '' : 'off'}">${x.status === 'active' ? 'فعّالة' : x.status === 'pending' ? 'بانتظار موافقة الإدارة' : esc(x.status)}</span></div>`).join('')
+    : '<div class="row">لا توجد موظفات بعد.</div>') +
+    `<form id="f" class="row"><b>إضافة موظفة</b><label>الاسم (ثلاثي)</label><input id="n" required>
+    <div class="m">يُرسل الطلب للإدارة، وتُنشأ لها بيانات الدخول بعد الموافقة.</div><div id="msg" class="m" role="status"></div><button class="p">إرسال الطلب</button></form>`;
+  $('f').onsubmit = async (ev) => {
+    ev.preventDefault(); const name = $('n').value.trim(); if (name.split(/\s+/).length < 3) return say('الاسم لازم يكون ثلاثيًا.', 'bad');
+    try { await F.addDoc(col, { name, status: 'pending', createdAt: F.serverTimestamp() }); staff(); } catch (e) { say('تعذر الإرسال: ' + e.code, 'bad'); }
+  };
+}
+tab(1);
+</script></body></html>
