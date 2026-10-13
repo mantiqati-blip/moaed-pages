@@ -56,6 +56,32 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // [جديد] إعلانات الإدارة داخل المنصة: الأدمن وحده يكتب ويعدّل (تعطيل) ويحذف، وتقرؤها صاحبات الصالونات والموظفات الفعّالات
+    match /announcements/{id} {
+      allow read: if isAdmin() || ((role() == 'owner' || role() == 'staff') && active());
+      allow create: if isAdmin() && request.resource.data.keys().hasOnly(['title', 'body', 'active', 'by', 'createdAt'])
+                    && request.resource.data.title is string && request.resource.data.title.size() >= 3 && request.resource.data.title.size() <= 80
+                    && request.resource.data.body is string && request.resource.data.body.size() >= 3 && request.resource.data.body.size() <= 2000
+                    && request.resource.data.active == true && request.resource.data.by == request.auth.uid && request.resource.data.createdAt is int;
+      allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active']) && request.resource.data.active is bool;
+      allow delete: if isAdmin();
+    }
+    // [جديد] ملخص محادثة الدعم لكل صالون (معرّفه = معرّف الصالون) ليرى الأدمن من ينتظر ردًا باستعلام واحد.
+    // الصالون يكتب «بانتظار الأدمن» فقط، والأدمن وحده يرفعه
+    match /supportThreads/{sid} {
+      allow read: if isAdmin() || isOwner(sid);
+      allow create, update: if (isOwner(sid) && request.resource.data.keys().hasOnly(['salonName', 'lastText', 'lastFrom', 'lastAt', 'awaitingAdmin'])
+                                && request.resource.data.lastFrom == 'owner' && request.resource.data.awaitingAdmin == true
+                                && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 120
+                                && request.resource.data.salonName is string && request.resource.data.salonName.size() <= 80
+                                && request.resource.data.lastAt is int && request.resource.data.lastAt <= nowMs() + 60000 && request.resource.data.lastAt >= nowMs() - 600000)
+                            || (isAdmin() && request.resource.data.keys().hasOnly(['salonName', 'lastText', 'lastFrom', 'lastAt', 'awaitingAdmin'])
+                                && request.resource.data.lastFrom == 'admin' && request.resource.data.awaitingAdmin == false
+                                && request.resource.data.lastText is string && request.resource.data.lastText.size() <= 120
+                                && request.resource.data.lastAt is int);
+      allow delete: if false;
+    }
+
     match /salons/{sid} {
       allow get: if resource.data.status == 'active' || isAdmin() || inSalon(sid);
       allow list: if isAdmin();                       // [جديد] لا قائمة عامة لجدول الصالونات (فيه ownerPhone)؛ الزبونات تقرأ publicSalons
@@ -90,6 +116,15 @@ service cloud.firestore {
                             && existsAfter(/databases/$(database)/documents/salons/$(sid)/payments/$(request.resource.data.paymentId))
                             && getAfter(/databases/$(database)/documents/salons/$(sid)/payments/$(request.resource.data.paymentId)).data.amount == resource.data.amount));
         allow delete: if isOwner(sid) && resource.data.status == 'pending' && resource.data.by == request.auth.uid;
+      }
+      // [جديد] رسائل الدعم بين الصالون والإدارة: الطرفان يضيفان رسالة بصفتهما فقط، ولا تُعدَّل ولا تُحذف
+      match /support/{mid} {
+        allow read: if isAdmin() || isOwner(sid);
+        allow create: if (isOwner(sid) && request.resource.data.from == 'owner' || isAdmin() && request.resource.data.from == 'admin')
+                      && request.resource.data.keys().hasOnly(['text', 'from', 'by', 'at']) && request.resource.data.by == request.auth.uid
+                      && request.resource.data.text is string && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 1000
+                      && request.resource.data.at is int && request.resource.data.at <= nowMs() + 60000 && request.resource.data.at >= nowMs() - 600000;
+        allow update, delete: if false;
       }
       // [جديد] الفترات المؤرشفة (تصفير الحساب): الأدمن فقط ينشئ، والمتبقي صفر، والمستحق = المسدد، ولا تُعدَّل ولا تُحذف
       match /periods/{pid} {
