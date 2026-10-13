@@ -68,6 +68,29 @@ service cloud.firestore {
                       && request.resource.data.amount is int && request.resource.data.amount > 0 && request.resource.data.by == request.auth.uid;
         allow update, delete: if false;
       }
+      // [جديد] طلبات التسديد (تأكيد الطرفين): الصالون يرسل طلبًا (معلّق) ويسحبه ما دام معلّقًا، والأدمن وحده يقرر.
+      // التأكيد يتم بدفعة ذرّية: ينشئ التسديد في payments (غير موجود قبلها) ويحدّث الطلب لـ approved بمعرّفه وبنفس المبلغ. الرفض يتطلب سببًا.
+      match /paymentRequests/{rid} {
+        allow read: if isAdmin() || isOwner(sid);
+        allow create: if isOwner(sid)
+                      && request.resource.data.keys().hasOnly(['amount', 'note', 'by', 'at', 'status'])
+                      && request.resource.data.status == 'pending' && request.resource.data.by == request.auth.uid
+                      && request.resource.data.amount is int && request.resource.data.amount > 0 && request.resource.data.amount <= 100000000
+                      && request.resource.data.at is int && request.resource.data.at <= nowMs() + 60000 && request.resource.data.at >= nowMs() - 600000
+                      && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 300));
+        allow update: if isAdmin() && resource.data.status == 'pending'
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'decision', 'decidedAt', 'decidedBy', 'paymentId'])
+                      && request.resource.data.decidedBy == request.auth.uid && request.resource.data.decidedAt is int
+                      && ((request.resource.data.status == 'rejected' && request.resource.data.decision is string
+                            && request.resource.data.decision.size() >= 3 && request.resource.data.decision.size() <= 300
+                            && !('paymentId' in request.resource.data))
+                       || (request.resource.data.status == 'approved' && request.resource.data.paymentId is string
+                            && !('decision' in request.resource.data)
+                            && !exists(/databases/$(database)/documents/salons/$(sid)/payments/$(request.resource.data.paymentId))
+                            && existsAfter(/databases/$(database)/documents/salons/$(sid)/payments/$(request.resource.data.paymentId))
+                            && getAfter(/databases/$(database)/documents/salons/$(sid)/payments/$(request.resource.data.paymentId)).data.amount == resource.data.amount));
+        allow delete: if isOwner(sid) && resource.data.status == 'pending' && resource.data.by == request.auth.uid;
+      }
       // [جديد] الفترات المؤرشفة (تصفير الحساب): الأدمن فقط ينشئ، والمتبقي صفر، والمستحق = المسدد، ولا تُعدَّل ولا تُحذف
       match /periods/{pid} {
         allow read: if isAdmin() || isOwner(sid) || staffCan(sid, 'accounts');
