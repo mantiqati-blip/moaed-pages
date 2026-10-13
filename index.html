@@ -142,14 +142,29 @@ try {
         tm.querySelectorAll('button').forEach((b) => b.onclick = () => { pick = slots[b.dataset.i]; tm.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', x === b)); form(); });
       } catch (e) { tm.innerHTML = '<div class="row bad">تعذر تحميل الأوقات.</div>'; }
     }
+    let otpConf = null, vf = null;
     function form() {
+      otpConf = null;
       const L = chosen(), total = L.reduce((n, x) => n + x.price, 0) + fee;
       $('fm').innerHTML = `<h2>بياناتك</h2><label for="cn">الاسم</label><input type="text" id="cn" autocomplete="name"><label for="cp">رقم الهاتف</label><input type="tel" id="cp" dir="ltr" placeholder="07XXXXXXXXX" autocomplete="tel">
-      <div class="m" id="er" role="status"></div><button id="go">تأكيد الحجز — ${money(total)}</button>`;
+      <div id="ot" hidden><label for="oc">رمز التحقق المرسل لهاتفك</label><input type="text" id="oc" dir="ltr" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></div><div id="rc"></div>
+      <div class="m" id="er" role="status"></div><button id="go">${sets.requirePhoneOtp ? 'إرسال رمز التحقق' : 'تأكيد الحجز'} — ${money(total)}</button>`;
       $('go').onclick = async () => {
         const er = (t) => { $('er').className = 'm bad'; $('er').textContent = t; }, name = $('cn').value.trim(), ph = $('cp').value.trim().replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c));
         if (name.length < 3) return er('اكتبي اسمك.'); if (!/^07[3-9]\d{8}$/.test(ph)) return er('رقم الهاتف غير صحيح (مثال: 07701234567).');
         $('go').disabled = true; $('er').textContent = '';
+        if (sets.requirePhoneOtp && auth.currentUser.phoneNumber !== '+964' + ph.slice(1)) {          // تحقق الهاتف برمز SMS قبل الحجز
+          try {
+            if (!otpConf) {
+              vf = vf || new A.RecaptchaVerifier(auth, 'rc', { size: 'invisible' });
+              otpConf = await A.linkWithPhoneNumber(auth.currentUser, '+964' + ph.slice(1), vf);
+              $('ot').hidden = false; $('go').textContent = 'تأكيد الحجز'; $('go').disabled = false; $('cp').readOnly = true; $('er').className = 'm'; $('er').textContent = 'أرسلنا رمزًا إلى هاتفك. اكتبيه ثم اضغطي تأكيد.'; return;
+            }
+            const code = $('oc').value.trim().replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)); if (!/^\d{6}$/.test(code)) { $('go').disabled = false; return er('الرمز ٦ أرقام.'); }
+            try { await otpConf.confirm(code); } catch (x) { if (x.code === 'auth/credential-already-in-use' && x.credential) await A.signInWithCredential(auth, x.credential); else throw x; }
+            await auth.currentUser.getIdToken(true);                                                    // لتظهر phone_number بالتوكن للقواعد
+          } catch (x) { $('go').disabled = false; if (x.code === 'auth/invalid-verification-code' || x.code === 'auth/code-expired') return er('الرمز غير صحيح أو انتهت صلاحيته.'); otpConf = null; vf?.clear?.(); vf = null; $('ot').hidden = true; $('cp').readOnly = false; $('go').textContent = 'إرسال رمز التحقق'; return er(x.code === 'auth/too-many-requests' ? 'محاولات كثيرة. أعيدي لاحقًا.' : 'تعذر التحقق من الهاتف. تأكدي من الرقم وأعيدي المحاولة.'); }
+        }
         const key = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)), sf = $('sf').value || pick.staff[0];
         try {
           const r = await bookSlot({ db, fs: { doc: F.doc, runTransaction: F.runTransaction }, user: auth.currentUser, salon: { id: slug }, staffId: sf, date: day, startMin: pick.m,
