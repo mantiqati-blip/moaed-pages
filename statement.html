@@ -16,6 +16,7 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--ac);outline-offset:
 <script type="module">
 import { configured, auth, db } from './js/fb.js';
 import { summarize, money, counted } from './js/finance.js';
+import { errText } from './js/strings.js';
 const app = document.getElementById('app'), q = new URLSearchParams(location.search), sid = q.get('salon'), pid = q.get('period');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const day = (t) => new Date(t + 3 * 36e5).toISOString().slice(0, 10), hm = (t) => new Date(t + 3 * 36e5).toISOString().slice(11, 16);   // توقيت بغداد
@@ -50,7 +51,7 @@ try {
   else if (role === 'owner' && open) {
     box.innerHTML = `<h2>اعتراض على الكشف</h2><div class=\"m\">يحق لك الاعتراض مرة واحدة خلال ٣ أيام من التصفير (حتى ${day(to + 3 * 864e5)}).</div><textarea id=\"ot\" rows=\"3\" maxlength=\"500\" style=\"width:100%;font:inherit;margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)\" aria-label=\"سبب الاعتراض\"></textarea><button id=\"ob\">إرسال الاعتراض</button><div id=\"om\" class=\"m\" role=\"status\"></div>`; app.append(box);
     document.getElementById('ob').onclick = async (e) => { const t = document.getElementById('ot').value.trim(), m = document.getElementById('om'); if (t.length < 5) { m.className = 'm bad'; m.textContent = 'اكتبي السبب (٥ أحرف على الأقل).'; return; } e.target.disabled = true;
-      try { await F.setDoc(F.doc(db, 'salons', sid, 'periods', pid, 'objections', 'main'), { reason: t, by: auth.currentUser.uid, at: Date.now(), status: 'open' }); location.reload(); } catch (x) { e.target.disabled = false; m.className = 'm bad'; m.textContent = 'تعذر الإرسال: ' + (x.code || x.message); } }; }
+      try { await F.setDoc(F.doc(db, 'salons', sid, 'periods', pid, 'objections', 'main'), { reason: t, by: auth.currentUser.uid, at: Date.now(), status: 'open' }); location.reload(); } catch (x) { e.target.disabled = false; m.className = 'm bad'; m.textContent = 'تعذر الإرسال: ' + errText(x); } }; }
   else if (role === 'owner') { box.innerHTML = '<div class=\"m\">انتهت مهلة الاعتراض (٣ أيام). الكشف معتمد.</div>'; app.append(box); }
-} catch (e) { if (e) fail('تعذر تحميل الكشف: ' + esc(e.code || e.message)); }
+} catch (e) { if (e) fail('تعذر تحميل الكشف: ' + escerrText(e)); }
 </script></body></html>
