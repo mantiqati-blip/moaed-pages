@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { planBooking } = require('./plan.js');
 const { planClose } = require('./period.js');
 const { planReschedule } = require('./reschedule.js');
+const { planAcceptMove } = require('./acceptmove.js');
 initializeApp();
 const db = getFirestore(), MAX_ACTIVE_PER_PHONE = 3;
 
@@ -95,5 +96,36 @@ exports.rescheduleBooking = onCall({ region: 'europe-west1', maxInstances: 20 },
     if (e instanceof HttpsError) throw e;
     if (e && e.code && /^(invalid-argument|failed-precondition|permission-denied|not-found)$/.test(e.code)) throw new HttpsError(e.code, e.message);
     console.error('rescheduleBooking', e); throw new HttpsError('internal', 'INTERNAL');
+  }
+});
+
+// قبول الزبونة لنقل اقترحه الصالون من السيرفر (لا يستهلك تعديلها الوحيد). لم يُجرَّب على Firebase: المنطق بـ acceptmove.js مختبر.
+exports.acceptMove = onCall({ region: 'europe-west1', maxInstances: 20 }, async (call) => {
+  if (!call.auth) throw new HttpsError('unauthenticated', 'LOGIN_REQUIRED');
+  const id = String((call.data || {}).bookingId || '');
+  if (!/^[A-Za-z0-9-]{16,64}$/.test(id)) throw new HttpsError('invalid-argument', 'BAD_IDS');
+  const now = Date.now(), bref = db.doc(`bookings/${id}`);
+  try {
+    return await db.runTransaction(async (tx) => {
+      const bs = await tx.get(bref); if (!bs.exists) throw new HttpsError('not-found', 'NOT_FOUND');
+      const booking = bs.data(), pid = booking.moveProposal && booking.moveProposal.staffId;
+      if (typeof pid !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(pid)) throw new HttpsError('failed-precondition', 'NOT_ALLOWED');
+      const st = await tx.get(db.doc(`salons/${booking.salonId}/staff/${pid}`));
+      const p = planAcceptMove({ booking, newStaff: st.exists ? st.data() : null, auth: call.auth, now, deleteMark: FieldValue.delete() });
+      const oref = db.doc(`schedules/${p.oldSchedule}`), nref = db.doc(`schedules/${p.newSchedule}`), same = p.oldSchedule === p.newSchedule;
+      const [osnap, nsnap] = same ? [await tx.get(oref)] : await Promise.all([tx.get(oref), tx.get(nref)]);
+      const t = same ? osnap : nsnap, ncells = t.exists ? t.data().cells || {} : {};
+      if (p.newKeys.some((k) => ncells[k] !== undefined && ncells[k] !== id)) throw new HttpsError('aborted', 'SLOT_TAKEN');
+      const mine = Object.fromEntries(p.newKeys.map((k) => [k, id])), gone = Object.fromEntries(p.oldKeys.filter((k) => !same || !p.newKeys.includes(k)).map((k) => [k, FieldValue.delete()]));
+      if (same) tx.set(oref, { cells: { ...gone, ...mine } }, { merge: true });
+      else { tx.set(oref, { cells: gone }, { merge: true }); tx.set(nref, { cells: mine }, { merge: true }); }
+      tx.update(bref, p.patch);
+      tx.set(bref.collection('events').doc('mv-' + now), { by: call.auth.uid, action: 'accept_move', from: booking.start, to: p.start, reason: p.reason, at: now });
+      return { start: p.start, end: p.end };
+    });
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    if (e && e.code && /^(invalid-argument|failed-precondition|permission-denied|not-found)$/.test(e.code)) throw new HttpsError(e.code, e.message);
+    console.error('acceptMove', e); throw new HttpsError('internal', 'INTERNAL');
   }
 });
