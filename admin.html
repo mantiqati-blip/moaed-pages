@@ -26,6 +26,7 @@ import { firebaseConfig } from './js/firebase-config.js';
 import { cellKeys } from './js/cells.js';
 import { summarize, validatePayment, money, effectiveFees, validFee, currentPeriod, canClose, periodRecord } from './js/finance.js';
 import { toXLSX, downloadX, bookingColumns, dateOf, timeOf, STATUS } from './js/export.js';
+import { errText } from './js/strings.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const AD = '٠١٢٣٤٥٦٧٨٩', latin = (s) => String(s).replace(/[٠-٩]/g, (d) => AD.indexOf(d));
@@ -58,12 +59,12 @@ async function list() {
   if ($('mg')) $('mg').onclick = async () => {
     if (!confirm(`نقل أرقام ${legacy.length} صالون إلى مكان خاص وحذفها من وثائق الصالونات؟`)) return; $('mg').disabled = true;
     try { for (let i = 0; i < legacy.length; i += 200) { const b = F.writeBatch(db); legacy.slice(i, i + 200).forEach((x) => { b.set(F.doc(db, 'salonPrivate', x.id), { ownerPhone: x.ownerPhone }); b.update(F.doc(db, 'salons', x.id), { ownerPhone: F.deleteField() }); }); await b.commit(); } await audit('salon.phones.migrate', String(legacy.length)).catch(() => {}); list(); }
-    catch (e) { $('mg').disabled = false; alert('تعذر النقل: ' + (e.code || e.message)); }
+    catch (e) { $('mg').disabled = false; alert('تعذر النقل: ' + errText(e)); }
   };
   $('sy').onclick = async () => { $('sy').disabled = true; await Promise.all(L.map((x) => pubSync(x))); $('sy').textContent = 'تمت المزامنة (' + L.length + ')'; };
   v.querySelectorAll('button[data-st]').forEach((b) => b.onclick = async () => {
     const st = b.dataset.st; if (st === 'suspended' && !confirm('إيقاف الصالون؟ لن يظهر للزبونات.')) return;
-    b.disabled = true; try { await F.updateDoc(F.doc(db, 'salons', b.dataset.id), { status: st }); await pubSync(L.find((x) => x.id === b.dataset.id), st); await audit('salon.' + st, b.dataset.id); list(); } catch (e) { alert('تعذر التحديث: ' + e.code); b.disabled = false; }
+    b.disabled = true; try { await F.updateDoc(F.doc(db, 'salons', b.dataset.id), { status: st }); await pubSync(L.find((x) => x.id === b.dataset.id), st); await audit('salon.' + st, b.dataset.id); list(); } catch (e) { alert('تعذر التحديث: ' + errText(e)); b.disabled = false; }
   });
 }
 function form() {
@@ -100,7 +101,7 @@ function form() {
       await audit('salon.create', slug).catch(() => {});
       msg(`تم. الصالون: /s/${slug} واسم المستخدم: ${un}. سلّمي كلمة السر لصاحبة الصالون ولا تحتفظي بها.`, 'ok'); $('f').reset();
     } catch (e) {
-      msg(e.msg || ({ 'slug-taken': 'هذا الرابط مستعمل لصالون آخر.', 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.', 'permission-denied': 'القواعد رفضت العملية.' }[e.code] || 'تعذر الإنشاء: ' + (e.code || e.message)), 'bad');
+      msg(e.msg || ({ 'slug-taken': 'هذا الرابط مستعمل لصالون آخر.', 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.', 'permission-denied': 'القواعد رفضت العملية.' }[e.code] || 'تعذر الإنشاء: ' + errText(e)), 'bad');
     } finally { $('go').disabled = false; if (sApp) App.deleteApp(sApp).catch(() => {}); }
   };
 }
@@ -114,7 +115,7 @@ async function staffTab() {
     <div class="m" role="status"></div><div class="s"><button class="p">موافقة وإنشاء الحساب</button><button type="button" data-rej="1">رفض</button></div></form>`).join('');
   v.querySelectorAll('form').forEach((f) => {
     const p = P[f.dataset.i], st = f.querySelector('.m[role]'), say = (t, c) => { st.className = 'm ' + c; st.textContent = t; };
-    f.querySelector('[data-rej]').onclick = async () => { if (!confirm('رفض الطلب وحذفه؟')) return; try { await F.deleteDoc(F.doc(db, 'salons', p.sid, 'staff', p.id)); await audit('staff.reject', p.sid + '/' + p.id); staffTab(); } catch (e) { say('تعذر الحذف: ' + e.code, 'bad'); } };
+    f.querySelector('[data-rej]').onclick = async () => { if (!confirm('رفض الطلب وحذفه؟')) return; try { await F.deleteDoc(F.doc(db, 'salons', p.sid, 'staff', p.id)); await audit('staff.reject', p.sid + '/' + p.id); staffTab(); } catch (e) { say('تعذر الحذف: ' + errText(e), 'bad'); } };
     f.onsubmit = async (ev) => {
       ev.preventDefault(); const [un, pw] = [...f.querySelectorAll('input')].map((i) => i.value.trim()); const uname = un.toLowerCase();
       if (pw.length < 8 || !/\d/.test(pw)) return say('كلمة السر: ٨ خانات فأكثر وفيها رقم.', 'bad');
@@ -128,7 +129,7 @@ async function staffTab() {
           b.update(F.doc(db, 'salons', p.sid, 'staff', p.id), { status: 'active', uid }); await b.commit();
         } catch (e) { throw { msg: `أُنشئ حساب ${uname} لكن فشل الربط (${e.code}). احذفي الحساب من Authentication ثم أعيدي.` }; }
         await audit('staff.approve', p.sid + '/' + p.id).catch(() => {}); staffTab();
-      } catch (e) { say(e.msg || ({ 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.' }[e.code] || 'تعذر الإنشاء: ' + (e.code || e.message)), 'bad'); f.querySelectorAll('button').forEach((b) => b.disabled = false); }
+      } catch (e) { say(e.msg || ({ 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.' }[e.code] || 'تعذر الإنشاء: ' + errText(e)), 'bad'); f.querySelectorAll('button').forEach((b) => b.disabled = false); }
       finally { if (sApp) App.deleteApp(sApp).catch(() => {}); }
     };
   });
@@ -149,7 +150,7 @@ async function cancelsTab() {
       const bt = F.writeBatch(db); bt.update(F.doc(db, 'bookings', b.id), { status: yes ? 'cancelled' : 'confirmed', adminReason: r, finalDecisionBy: u.uid });
       if (yes) { const d = new Date(b.start + 3 * 36e5), upd = {}; cellKeys(d.getUTCHours() * 60 + d.getUTCMinutes(), b.durationMin).forEach((k) => upd['cells.' + k] = F.deleteField()); bt.update(F.doc(db, 'schedules', b.staffId + '_' + d.toISOString().slice(0, 10)), upd); }
       await bt.commit(); await audit(yes ? 'booking.cancel' : 'booking.keep', b.id).catch(() => {}); cancelsTab();
-    } catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر التنفيذ: ' + (e.code || e.message); }
+    } catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر التنفيذ: ' + errText(e); }
   });
 }
 async function accountsTab() {
@@ -168,13 +169,13 @@ async function accountsTab() {
       if (bad) { $('msg').className = 'm bad'; $('msg').textContent = bad; return; }
       btn.disabled = true;
       try { await F.addDoc(F.collection(db, 'salons', r.id, 'payments'), { amount: amt, by: u.uid, at: Date.now() }); await audit('payment', r.id + ':' + amt).catch(() => {}); accountsTab(); }
-      catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر التسجيل: ' + (e.code || e.message); }
+      catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر التسجيل: ' + errText(e); }
     });
     v.querySelectorAll('button[data-ob]').forEach((btn) => btn.onclick = async () => {
       const [i, j] = btn.dataset.ob.split(':'), r = R[i], o = r.obj[j], yes = confirm(`اعتراض ${r.name}:\n${o.reason}\n\nموافق = قبول الاعتراض، إلغاء = رفضه`), note = prompt('اكتبي قرارك (٣ أحرف على الأقل):'); if (note == null || note.trim().length < 3) return;
       btn.disabled = true;
       try { await F.updateDoc(F.doc(db, 'salons', r.id, 'periods', o.pid, 'objections', 'main'), { status: yes ? 'accepted' : 'rejected', decision: note.trim(), decidedAt: Date.now(), decidedBy: u.uid }); await audit('objection.' + (yes ? 'accept' : 'reject'), r.id + '/' + o.pid).catch(() => {}); accountsTab(); }
-      catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر الحفظ: ' + (e.code || e.message); }
+      catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر الحفظ: ' + errText(e); }
     });
     v.querySelectorAll('button[data-z]').forEach((btn) => btn.onclick = async () => {
       const r = R[btn.dataset.z], say = (t) => { $('msg').className = 'm bad'; $('msg').textContent = t; };
@@ -186,7 +187,7 @@ async function accountsTab() {
         if (!canClose(S)) { btn.disabled = false; return say('تغيّرت الأرقام: المتبقي ' + S.remaining + '. أعيدي تحميل الصفحة.'); }
         await F.addDoc(F.collection(db, 'salons', r.id, 'periods'), periodRecord(S, last, t0, u.uid));
         await audit('period.close', `${r.id}: ${S.count} bookings, due ${S.due}`).catch(() => {}); accountsTab();
-      } catch (e) { btn.disabled = false; say('تعذر التصفير: ' + (e.code || e.message)); }
+      } catch (e) { btn.disabled = false; say('تعذر التصفير: ' + errText(e)); }
     });
   } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الحسابات: ' + esc(e.code) + '</div>'; }
 }
@@ -236,7 +237,7 @@ async function appsTab() {
     <div class="m" data-st role="status"></div><div class="s" style="margin-top:8px"><button type="button" class="p" data-ap="1" ${ok ? '' : 'disabled'}>موافقة وإنشاء الحساب</button><button type="button" data-more="1">طلب استكمال</button><button type="button" data-rej="1">رفض</button></div></details>`; }).join('');
   v.querySelectorAll('details').forEach((el) => {
     const x = L[el.dataset.i], ref = F.doc(db, 'applications', x.id), st = el.querySelector('[data-st]'), say = (t, c = '') => { st.className = 'm ' + c; st.textContent = t; }, q = (s) => el.querySelector(s);
-    const act = async (fn, okMsg) => { try { await fn(); if (okMsg) say(okMsg, 'ok'); } catch (e) { say(e.msg || ('تعذر التنفيذ: ' + (e.code || e.message)), 'bad'); } };
+    const act = async (fn, okMsg) => { try { await fn(); if (okMsg) say(okMsg, 'ok'); } catch (e) { say(e.msg || ('تعذر التنفيذ: ' + errText(e)), 'bad'); } };
     el.querySelectorAll('[data-save]').forEach((b) => b.onclick = () => act(async () => { const k = b.dataset.save; await F.updateDoc(ref, { ['calls.' + k]: { status: q(`[data-c=${k}]`).value, notes: q(`[data-n=${k}]`).value.trim(), at: Date.now(), by: name || u.uid } }); await audit('application.call.' + k, x.id).catch(() => {}); appsTab(); }));
     q('[data-saveE]').onclick = () => act(async () => {
       const upd = {}, log = []; el.querySelectorAll('[data-e]').forEach((i) => { const k = i.dataset.e, val = k === 'ownerPhone' ? latin(i.value.trim()) : i.value.trim(); if (val && val !== x[k]) { upd[k] = val; log.push({ field: k, from: x[k], to: val, by: u.uid, at: Date.now() }); } });
@@ -263,7 +264,7 @@ async function appsTab() {
         } catch (e) { throw { msg: `أُنشئ حساب ${un} لكن فشل الحفظ (${e.code}). احذفي الحساب من Authentication ثم أعيدي.` }; }
         await F.updateDoc(F.doc(db, 'salons', slug), { address: cur.address, whatsapp: cur.whatsapp, whatsapp2: cur.whatsapp2 || null, activityType: cur.activityType, hours: cur.hours, applicationId: x.id }).catch(() => {});
         await audit('application.approve', x.id + '>' + slug).catch(() => {}); say(`تمت الموافقة. الصالون: /s/${slug} واسم المستخدم: ${un}. سلّمي كلمة السر لها ولا تحتفظي بها.`, 'ok');
-      } catch (e) { btn.disabled = false; say(e.msg || ({ 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.' }[e.code] || 'تعذر التنفيذ: ' + (e.code || e.message)), 'bad'); }
+      } catch (e) { btn.disabled = false; say(e.msg || ({ 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.' }[e.code] || 'تعذر التنفيذ: ' + errText(e)), 'bad'); }
       finally { if (sApp) App.deleteApp(sApp).catch(() => {}); }
     };
   });
@@ -291,19 +292,19 @@ async function feesTab() {
     if (!validFee(f) || !validFee(c)) return say('أدخلي رقمين صحيحين (٠ فأكثر).', 'bad');
     if (!confirm(`حفظ الافتراضي: رسم ${f} واستقطاع ${c}؟ يؤثر على الصالونات بدون قيمة خاصة.`)) return;
     try { await F.updateDoc(F.doc(db, 'platform', 'settings'), { customerFee: f, salonCut: c }); await audit('fees.default', `fee ${set.customerFee}>${f}; cut ${set.salonCut}>${c}`).catch(() => {}); say('تم الحفظ.', 'ok'); feesTab(); }
-    catch (e) { say('تعذر الحفظ: ' + (e.code || e.message), 'bad'); }
+    catch (e) { say('تعذر الحفظ: ' + errText(e), 'bad'); }
   };
   $('ps').onclick = async () => {
     const on = $('po').checked, say = (t, k) => { $('pm').className = 'm ' + k; $('pm').textContent = t; };
     if (on && !confirm('تأكدتِ أن Phone مفعّل بـ Firebase وأن الدومين مضاف؟ إذا لا، لن تستطيع أي زبونة الحجز.')) return;
     try { await F.updateDoc(F.doc(db, 'platform', 'settings'), { requirePhoneOtp: on }); await audit('settings.otp', String(on)).catch(() => {}); say('تم الحفظ.', 'ok'); }
-    catch (e) { say('تعذر الحفظ: ' + (e.code || e.message), 'bad'); }
+    catch (e) { say('تعذر الحفظ: ' + errText(e), 'bad'); }
   };
   $('ss').onclick = async () => {
     const say = (t, k) => { $('sm').className = 'm ' + k; $('sm').textContent = t; }, n = latin($('sw').value.trim().replace(/[\s-]/g, ''));
     if (n !== '' && !/^07[3-9][0-9]{8}$/.test(n)) return say('الرقم لازم يكون بصيغة 07xxxxxxxxx.', 'bad');
     try { await F.updateDoc(F.doc(db, 'platform', 'settings'), { supportWhatsapp: n === '' ? F.deleteField() : n }); await audit('settings.support', n || 'removed').catch(() => {}); say('تم الحفظ.', 'ok'); }
-    catch (e) { say('تعذر الحفظ: ' + (e.code || e.message), 'bad'); }
+    catch (e) { say('تعذر الحفظ: ' + errText(e), 'bad'); }
   };
   v.querySelectorAll('[data-s]').forEach((btn) => btn.onclick = async () => {
     const row = btn.closest('.row'), s = L[row.dataset.i], m = row.querySelector('[data-m]'), say = (t, k) => { m.className = 'm ' + k; m.textContent = t; }, upd = {}, log = [];
@@ -313,7 +314,7 @@ async function feesTab() {
     if (!log.length) return say('ما في تغيير.', '');
     btn.disabled = true;
     try { await F.updateDoc(F.doc(db, 'salons', s.id), upd); await audit('fees.salon', s.id + ': ' + log.join('; ')).catch(() => {}); say('تم الحفظ. يسري على الحجوزات الجديدة.', 'ok'); setTimeout(feesTab, 700); }
-    catch (e) { btn.disabled = false; say('تعذر الحفظ: ' + (e.code || e.message), 'bad'); }
+    catch (e) { btn.disabled = false; say('تعذر الحفظ: ' + errText(e), 'bad'); }
   });
 }
 tab(1);
