@@ -23,6 +23,8 @@ label{display:block;font-weight:600;margin:12px 0 4px}input,select{font:inherit;
 <script type="module">
 import { configured, auth, db } from './js/fb.js';
 import { summarize, money } from './js/finance.js';
+import { bookSlot } from './js/booking.js';
+import { slotsFor, fmt } from './js/avail.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const latin = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
@@ -38,9 +40,9 @@ $('me').textContent = me.name || ''; $('out').hidden = false; $('out').onclick =
 const sid = me.salonId, sref = F.doc(db, 'salons', sid);
 const salon = (await F.getDoc(sref)).data() || {}; $('sn').textContent = salon.name || 'لوحة الصالون';
 const note = salon.status === 'active' ? '' : '<div class="row bad">صالونك موقوف حاليًا ولا يظهر للزبونات. تواصلي مع الإدارة.</div>';
-app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button><button id="t5">الحسابات</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings, accounts][n - 1](); };
-[1, 2, 3, 4, 5].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button><button id="t5">الحسابات</button><button id="t6">حجز يدوي</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings, accounts, manual][n - 1](); };
+[1, 2, 3, 4, 5, 6].forEach((i) => $('t' + i).onclick = () => tab(i));
 const msgEl = () => $('msg'), say = (t, c = '') => { msgEl().className = 'm ' + c; msgEl().textContent = t; };
 async function services() {
   const v = $('v'), col = F.collection(db, 'salons', sid, 'services');
@@ -132,6 +134,49 @@ async function accounts() {
       <div class="row"><b>التسديدات</b>${P.length ? P.map((p) => line(new Date(p.at + 3 * 36e5).toISOString().slice(0, 10), money(p.amount))).join('') : '<div class="m">لا توجد تسديدات بعد.</div>'}</div>
       <div class="m">المستحق = (رسوم الخدمة + الاستقطاع) للحجوزات المكتملة فقط. التسديد تسجّله الإدارة.</div>`;
   } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الحسابات: ' + esc(e.code) + '</div>'; }
+}
+async function manual() {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>'; let sets, SV, ST;
+  try { [sets, SV, ST] = await Promise.all([F.getDoc(F.doc(db, 'platform', 'settings')).then((d) => d.data() || {}), F.getDocs(F.collection(db, 'salons', sid, 'services')), F.getDocs(F.collection(db, 'salons', sid, 'staff'))]); }
+  catch (e) { v.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(e.code) + '</div>'; return; }
+  const svc = SV.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.active), stf = ST.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.status === 'active'), H = salon.hours;
+  if (!stf.length) { v.innerHTML = '<div class="row">لا توجد موظفة معتمدة بعد. اطلبي إضافتها من تبويب الموظفات وتنتظرين موافقة الإدارة.</div>'; return; }
+  if (!H) { v.innerHTML = '<div class="row">حدّدي ساعات الدوام أولًا من تبويب «الدوام».</div>'; return; }
+  const AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'], days = [];
+  for (let i = 0; i < 14; i++) { const d = new Date(Date.now() + 3 * 36e5 + i * 864e5), h = H[d.getUTCDay()]; if (h && !h.off) days.push([d.toISOString().slice(0, 10), `${AR[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth() + 1}`]); }
+  const durs = [15, 30, 45, 60, 90, 120, 180, 240];
+  v.innerHTML = `<form id="f" class="row"><label>النوع</label><select id="ty"><option value="m">حجز لزبونة (هاتفي أو حضوري)</option><option value="b">إغلاق وقت (استراحة أو إجازة)</option></select>
+  <div id="sm"><label>الخدمات</label>${svc.length ? svc.map((x, i) => `<label style="display:flex;gap:8px;font-weight:400;align-items:center"><input type="checkbox" data-i="${i}" style="width:20px"> ${esc(x.name)} <span class="m">${x.durationMin} د</span></label>`).join('') : '<div class="m">أضيفي خدمات أولًا.</div>'}</div>
+  <div id="sb" hidden><label>المدة</label><select id="du">${durs.map((m) => `<option value="${m}">${m} دقيقة</option>`).join('')}</select></div>
+  <label>الموظفة</label><select id="sf">${stf.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select>
+  <label>اليوم</label><select id="dy"><option value="">اختاري</option>${days.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select>
+  <div id="tm"></div><div id="sn2"><div class="g3"><div><label>اسم الزبونة</label><input id="cn"></div><div><label>الهاتف (اختياري)</label><input id="cp" dir="ltr" inputmode="numeric"></div></div></div>
+  <div id="msg" class="m" role="status"></div><button class="p" id="go" disabled>حفظ</button></form>`;
+  let slots = [], pick = null;
+  const ty = () => $('ty').value, chosen = () => [...v.querySelectorAll('#sm input:checked')].map((e) => svc[e.dataset.i]), dur = () => ty() === 'b' ? Number($('du').value) : chosen().reduce((n, x) => n + x.durationMin, 0);
+  async function load() {
+    pick = null; $('go').disabled = true; const d = dur(), day = $('dy').value, tm = $('tm');
+    if (!d) { tm.innerHTML = '<div class="m">اختاري الخدمات أولًا.</div>'; return; } if (!day) { tm.innerHTML = ''; return; }
+    tm.innerHTML = '<div class="m">جارٍ حساب الأوقات...</div>';
+    try {
+      const sf = $('sf').value, h = H[new Date(day + 'T00:00:00Z').getUTCDay()], cells = (await F.getDoc(F.doc(db, 'schedules', sf + '_' + day))).data()?.cells || {};
+      slots = slotsFor({ open: h.open, close: h.close, durationMin: d, cellsByStaff: { [sf]: cells }, date: day, now: Date.now() });
+      tm.innerHTML = slots.length ? `<label>الوقت</label><div class="s" style="justify-content:flex-start;flex-wrap:wrap;gap:8px">${slots.map((x, i) => `<button type="button" data-i="${i}" aria-pressed="false">${fmt(x.m)}</button>`).join('')}</div>` : '<div class="m">لا توجد أوقات متاحة بهذا اليوم.</div>';
+      tm.querySelectorAll('button').forEach((b) => b.onclick = () => { pick = slots[b.dataset.i]; tm.querySelectorAll('button').forEach((x) => { x.className = x === b ? 'on' : ''; x.setAttribute('aria-pressed', x === b); }); $('go').disabled = false; });
+    } catch (e) { tm.innerHTML = '<div class="bad">تعذر تحميل الأوقات.</div>'; }
+  }
+  const sync = () => { $('sm').hidden = ty() === 'b'; $('sn2').hidden = ty() === 'b'; $('sb').hidden = ty() === 'm'; load(); };
+  ['ty', 'du', 'sf', 'dy'].forEach((i) => $(i).onchange = sync); v.querySelectorAll('#sm input').forEach((c) => c.onchange = load);
+  $('f').onsubmit = async (ev) => {
+    ev.preventDefault(); if (!pick) return; const b = ty() === 'b', name = $('cn').value.trim(), ph = latin($('cp').value.trim());
+    if (!b && name.length < 2) return say('اكتبي اسم الزبونة.', 'bad'); if (!b && ph && !/^07[3-9]\d{8}$/.test(ph)) return say('رقم الهاتف غير صحيح.', 'bad');
+    const L = b ? [{ id: 'block', name: 'وقت مغلق', price: 0, durationMin: dur() }] : chosen().map((x) => ({ id: x.id, name: x.name, price: x.price, durationMin: x.durationMin }));
+    $('go').disabled = true; say('جارٍ الحفظ...');
+    try { await bookSlot({ db, fs: { doc: F.doc, runTransaction: F.runTransaction }, user: u, salon: { id: sid }, staffId: $('sf').value, date: $('dy').value, startMin: pick.m, services: L, settings: sets,
+        idempotencyKey: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2), source: b ? 'blocked' : 'manual', customerName: b ? '' : name, customerPhone: b ? '' : ph });
+      say(b ? 'تم إغلاق الوقت.' : 'تم حفظ الحجز.', 'ok'); setTimeout(manual, 900); }
+    catch (e) { $('go').disabled = false; say(e.message === 'SLOT_TAKEN' ? 'هذا الوقت انحجز قبل لحظات. اختاري وقتًا آخر.' : e.message === 'NOT_CONFIGURED' ? 'إعدادات المنصة غير مكتملة.' : 'تعذر الحفظ: ' + (e.code || e.message), 'bad'); if (e.message === 'SLOT_TAKEN') load(); }
+  };
 }
 tab(4);
 </script></body></html>
