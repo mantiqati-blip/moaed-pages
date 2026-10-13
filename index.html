@@ -88,7 +88,13 @@ try {
         try { await F.updateDoc(F.doc(db, 'bookings', id), { status: 'cancel_requested', cancelReason: 'رفضت نقل الموعد: ' + r, cancelRequestedAt: Date.now(), moveProposal: F.deleteField() }); location.reload(); }
         catch (e) { btn.disabled = false; say('تعذر الإرسال: ' + (e.code || '')); } return; }
       btn.disabled = true;
-      try { await acceptMove({ db, fs: { doc: F.doc, runTransaction: F.runTransaction, deleteField: F.deleteField }, user: auth.currentUser, bookingId: id }); location.reload(); }
+      try {
+        if (((await F.getDoc(F.doc(db, 'platform', 'settings'))).data() || {}).useServerMove) {      // القبول من السيرفر عند تفعيله من platform/settings
+          const FN = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js');
+          await FN.httpsCallable(FN.getFunctions(fbApp, 'europe-west1'), 'acceptMove')({ bookingId: id });
+        } else
+        await acceptMove({ db, fs: { doc: F.doc, runTransaction: F.runTransaction, deleteField: F.deleteField }, user: auth.currentUser, bookingId: id });
+        location.reload(); }
       catch (e) { btn.disabled = false; say({ SLOT_TAKEN: 'الوقت المقترح لم يعد متاحًا. تواصلي مع الصالون أو اطلبي الإلغاء.', PAST: 'انتهى الوقت المقترح.' }[e.message] || ('تعذر النقل: ' + (e.code || e.message))); }
     });
   } else if (!slug) {
