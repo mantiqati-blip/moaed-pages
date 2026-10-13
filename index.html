@@ -17,7 +17,7 @@ select,input[type=text],input[type=tel]{font:inherit;width:100%;padding:12px;bor
 .h{display:flex;justify-content:space-between;padding:4px 0}.t{font-weight:700;font-size:18px}
 </style></head><body><header class="s"><b>موعد أنوثة</b><a href="?my=1" style="color:var(--ac);font-weight:700">حجوزاتي</a></header><main id="app"><div class="row">جارٍ التحميل...</div></main><footer style="max-width:560px;margin:8px auto 24px;padding:0 16px;font-size:13px;display:flex;gap:16px;justify-content:center"><a href="terms.html" style="color:var(--mute)">الشروط</a><a href="privacy.html" style="color:var(--mute)">الخصوصية</a></footer>
 <script type="module">
-import { configured, auth, db } from './js/fb.js';
+import { configured, auth, db, app as fbApp } from './js/fb.js';
 import { bookSlot, rescheduleBooking, acceptMove } from './js/booking.js';
 import { slotsFor, fmt } from './js/avail.js';
 import { effectiveFees } from './js/finance.js';
@@ -167,10 +167,16 @@ try {
         }
         const key = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)), sf = $('sf').value || pick.staff[0];
         try {
-          const r = await bookSlot({ db, fs: { doc: F.doc, runTransaction: F.runTransaction }, user: auth.currentUser, salon: { id: slug }, staffId: sf, date: day, startMin: pick.m,
+          let r;
+          if (sets.useServerBooking) {                                                                // الحجز من السيرفر (Cloud Functions) عند تفعيله من الأدمن
+            const FN = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js');
+            r = (await FN.httpsCallable(FN.getFunctions(fbApp, 'europe-west1'), 'createBooking')({ idempotencyKey: key, salonId: slug, staffId: sf, date: day, startMin: pick.m,
+              serviceIds: L.map((x) => x.id), customerName: name, customerPhone: ph, src: SRC.includes(p) ? p : null })).data;
+          } else
+          r = await bookSlot({ db, fs: { doc: F.doc, runTransaction: F.runTransaction }, user: auth.currentUser, salon: { id: slug }, staffId: sf, date: day, startMin: pick.m,
             services: L.map((x) => ({ id: x.id, name: x.name, price: x.price, durationMin: x.durationMin })), settings: sets, idempotencyKey: key, source: 'online', src: SRC.includes(p) ? p : null, customerName: name, customerPhone: ph });
           app.innerHTML = `<div class="row"><h2 class="ok">تم الحجز ✓</h2><div>${esc(S.name)}</div><div class="m">${day} · ${fmt(pick.m)}</div><div class="m">رمز الإكمال، قوليه للموظفة بعد انتهاء الخدمة:</div><div class="code" dir="ltr">${esc(r.code || '----')}</div><div class="m">احتفظي بالرمز، فلا تقدرين تشوفينه هنا بعد مغادرة الصفحة.</div></div>`;
-        } catch (e) { $('go').disabled = false; er(e.message === 'SLOT_TAKEN' ? 'هذا الوقت انحجز قبل لحظات. اختاري وقتًا آخر.' : e.message === 'NOT_CONFIGURED' ? 'إعدادات المنصة غير مكتملة.' : e.code === 'permission-denied' ? 'تعذر الحجز. حدّثي الصفحة وأعيدي المحاولة، وإن تكرر تواصلي مع الصالون.' : 'تعذر الحجز. أعيدي المحاولة.'); if (e.message === 'SLOT_TAKEN') load(); }
+        } catch (e) { $('go').disabled = false; er(e.message === 'SLOT_TAKEN' ? 'هذا الوقت انحجز قبل لحظات. اختاري وقتًا آخر.' : e.message === 'TOO_MANY_ACTIVE' ? 'عندك حجوزات قادمة كثيرة بهذا الرقم. أكملي أحدها أو ألغيه أولًا.' : e.message === 'OUTSIDE_HOURS' ? 'هذا الوقت خارج دوام الصالون.' : e.message === 'NOT_CONFIGURED' ? 'إعدادات المنصة غير مكتملة.' : e.code === 'permission-denied' ? 'تعذر الحجز. حدّثي الصفحة وأعيدي المحاولة، وإن تكرر تواصلي مع الصالون.' : 'تعذر الحجز. أعيدي المحاولة.'); if (e.message === 'SLOT_TAKEN') load(); }
       };
     }
   }
