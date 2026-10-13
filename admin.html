@@ -43,9 +43,9 @@ let gov = [], areas = [];
 const [g, a] = await Promise.all([F.getDocs(F.collection(db, 'governorates')), F.getDocs(F.collection(db, 'areas'))]);
 gov = g.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
 areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
-app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5, 6].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings][n - 1](); };
-[1, 2, 3, 4, 5, 6].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button><button id="t7">طلبات الانضمام</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6, 7].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings, appsTab][n - 1](); };
+[1, 2, 3, 4, 5, 6, 7].forEach((i) => $('t' + i).onclick = () => tab(i));
 async function list() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   const s = await F.getDocs(F.collection(db, 'salons')), L = s.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -182,6 +182,62 @@ async function allBookings() {
     download(`bookings-${dateOf(Date.now())}.csv`, toCSV(L, bookingColumns({ salons })));
     await audit('export.bookings', `${L.length} rows`).catch(() => {}); $('msg').className = 'm ok'; $('msg').textContent = `صُدّر ${L.length} حجز.`;
   };
+}
+const CALL = { none: 'لم تتم', done: 'تمت', failed: 'فشلت' }, ACT = { salon: 'صالون نسائي', clinic: 'عيادة تجميل', both: 'صالون وعيادة' };
+async function appsTab() {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>'; let L;
+  try { L = (await F.getDocs(F.collection(db, 'applications'))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => ['pending', 'needs_info'].includes(x.status)).sort((a, b) => b.createdAt - a.createdAt); }
+  catch (e) { v.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(e.code) + ' (انشري قواعد applications إن لم تُنشر).</div>'; return; }
+  if (!L.length) { v.innerHTML = '<div class="row">لا توجد طلبات انضمام معلّقة. الرابط للتقديم: <span dir="ltr">' + esc(location.origin + location.pathname.replace('admin.html', 'join.html')) + '</span></div>'; return; }
+  const gn = (id) => gov.find((x) => x.id === id)?.name || '', an = (id) => areas.find((x) => x.id === id)?.name || '', when = (t) => dateOf(t) + ' ' + timeOf(t);
+  const days = [[6, 'السبت'], [0, 'الأحد'], [1, 'الاثنين'], [2, 'الثلاثاء'], [3, 'الأربعاء'], [4, 'الخميس'], [5, 'الجمعة']];
+  const callBox = (k, n, c) => `<div class="s" style="gap:6px;margin:6px 0"><b>${n}</b><span class="m">${CALL[c.status] || ''}${c.at ? ' · ' + when(c.at) + ' · ' + esc(c.by || '') : ''}</span></div>
+    <div class="g2"><select data-c="${k}">${Object.entries(CALL).map(([s, t]) => `<option value="${s}" ${s === c.status ? 'selected' : ''}>${t}</option>`).join('')}</select><input data-n="${k}" placeholder="ملاحظات" value="${esc(c.notes || '')}"></div><button type="button" data-save="${k}" style="margin-top:6px">حفظ نتيجة ${n}</button>`;
+  v.innerHTML = L.map((x, i) => { const c = x.calls || {}, ok = c.voice?.status === 'done' && c.video?.status === 'done';
+    return `<details class="row" data-i="${i}"><summary><b>${esc(x.salonName)}</b> <span class="m">— ${esc(x.ownerName)} · ${when(x.createdAt)} ${x.status === 'needs_info' ? '· بانتظار استكمال' : ''}</span></summary>
+    <div class="m" style="margin-top:8px">${esc(ACT[x.activityType] || '')} · ${esc(gn(x.governorateId))} / ${esc(an(x.areaId))} · عدد الموظفات ${esc(x.staffCount)}</div>
+    <div>${esc(x.address)}</div><div class="m" dir="ltr" style="text-align:right">هاتفها: ${esc(x.ownerPhone)} · واتساب الصالون: ${esc(x.whatsapp)} ${esc(x.whatsapp2 || '')}</div>
+    <div class="m">الدوام: ${days.map(([k, n]) => n + ' ' + (x.hours?.[k]?.off ? 'عطلة' : esc(x.hours?.[k]?.open) + '-' + esc(x.hours?.[k]?.close))).join(' · ')}</div>
+    <div class="m" style="white-space:pre-wrap">الخدمات: ${esc(x.servicesText)}</div><div class="m" dir="ltr" style="text-align:right">${esc(Object.values(x.social || {}).filter(Boolean).join(' · '))}</div>
+    <h3 style="font-size:15px;margin:14px 0 4px">تصحيح بيانات الطلب</h3><div class="g2"><div><label>اسم الصالون</label><input data-e="salonName" value="${esc(x.salonName)}"></div><div><label>اسم صاحبة الصالون</label><input data-e="ownerName" value="${esc(x.ownerName)}"></div></div>
+    <div class="g2"><div><label>هاتفها</label><input data-e="ownerPhone" dir="ltr" value="${esc(x.ownerPhone)}"></div><div><label>المنطقة</label><select data-e="areaId">${areas.filter((a) => a.governorateId === x.governorateId).map((a) => `<option value="${esc(a.id)}" ${a.id === x.areaId ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div></div><button type="button" data-saveE="1" style="margin-top:6px">حفظ التصحيح (يُسجَّل)</button>
+    <h3 style="font-size:15px;margin:14px 0 4px">التحقق</h3><div class="m">١) مكالمة صوتية برقمها للتأكد من الرقم والاسم. ٢) مكالمة فيديو تُظهر المكان من الداخل والخارج ووثيقة التحقق مع وجهها. تتم خارج المنصة.</div>
+    ${callBox('voice', 'المكالمة الصوتية', c.voice || { status: 'none' })}${callBox('video', 'مكالمة الفيديو', c.video || { status: 'none' })}
+    <h3 style="font-size:15px;margin:14px 0 4px">الموافقة</h3>${ok ? '' : '<div class="m bad">زر الموافقة معطّل حتى تكتمل المكالمتان.</div>'}
+    <label>رابط الصالون</label><input data-a="slug" dir="ltr" pattern="[a-z0-9]+(-[a-z0-9]+)*"><div class="g2"><div><label>اسم المستخدم</label><input data-a="un" dir="ltr" pattern="[a-z0-9]+"></div><div><label>كلمة السر المؤقتة</label><input data-a="pw" dir="ltr" minlength="8"></div></div>
+    <div class="m" data-st role="status"></div><div class="s" style="margin-top:8px"><button type="button" class="p" data-ap="1" ${ok ? '' : 'disabled'}>موافقة وإنشاء الحساب</button><button type="button" data-more="1">طلب استكمال</button><button type="button" data-rej="1">رفض</button></div></details>`; }).join('');
+  v.querySelectorAll('details').forEach((el) => {
+    const x = L[el.dataset.i], ref = F.doc(db, 'applications', x.id), st = el.querySelector('[data-st]'), say = (t, c = '') => { st.className = 'm ' + c; st.textContent = t; }, q = (s) => el.querySelector(s);
+    const act = async (fn, okMsg) => { try { await fn(); if (okMsg) say(okMsg, 'ok'); } catch (e) { say(e.msg || ('تعذر التنفيذ: ' + (e.code || e.message)), 'bad'); } };
+    el.querySelectorAll('[data-save]').forEach((b) => b.onclick = () => act(async () => { const k = b.dataset.save; await F.updateDoc(ref, { ['calls.' + k]: { status: q(`[data-c=${k}]`).value, notes: q(`[data-n=${k}]`).value.trim(), at: Date.now(), by: name || u.uid } }); await audit('application.call.' + k, x.id).catch(() => {}); appsTab(); }));
+    q('[data-saveE]').onclick = () => act(async () => {
+      const upd = {}, log = []; el.querySelectorAll('[data-e]').forEach((i) => { const k = i.dataset.e, val = k === 'ownerPhone' ? latin(i.value.trim()) : i.value.trim(); if (val && val !== x[k]) { upd[k] = val; log.push({ field: k, from: x[k], to: val, by: u.uid, at: Date.now() }); } });
+      if (!log.length) return say('ما في تغيير.'); if (upd.ownerPhone && !/^07[3-9]\d{8}$/.test(upd.ownerPhone)) throw { msg: 'رقم الهاتف غير صحيح.' };
+      await F.updateDoc(ref, { ...upd, edits: F.arrayUnion(...log) }); await audit('application.edit', x.id).catch(() => {}); appsTab(); });
+    q('[data-rej]').onclick = () => act(async () => { const r = (prompt('سبب الرفض (إلزامي، يصل لصاحبة الطلب):') || '').trim(); if (!r) return; await F.updateDoc(ref, { status: 'rejected', reason: r, decidedBy: u.uid, decidedAt: Date.now() }); await audit('application.reject', x.id).catch(() => {}); appsTab(); });
+    q('[data-more]').onclick = () => act(async () => { const r = (prompt('ما المطلوب استكماله؟ (إلزامي)') || '').trim(); if (!r) return; await F.updateDoc(ref, { status: 'needs_info', reason: r, decidedBy: u.uid, decidedAt: Date.now() }); await audit('application.needs_info', x.id).catch(() => {}); appsTab(); });
+    q('[data-ap]').onclick = async () => {
+      const slug = q('[data-a=slug]').value.trim(), un = q('[data-a=un]').value.trim().toLowerCase(), pw = q('[data-a=pw]').value, btn = q('[data-ap]'); let sApp = null;
+      if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) return say('رابط الصالون: حروف إنجليزية صغيرة وأرقام وشرطة.', 'bad'); if (!/^[a-z0-9]+$/.test(un)) return say('اسم المستخدم: حروف إنجليزية صغيرة وأرقام فقط.', 'bad');
+      if (pw.length < 8 || !/\d/.test(pw)) return say('كلمة السر: ٨ خانات فأكثر وفيها رقم.', 'bad');
+      btn.disabled = true; say('جارٍ الإنشاء...');
+      try {
+        const cur = (await F.getDoc(ref)).data(), c = cur.calls || {}; if (c.voice?.status !== 'done' || c.video?.status !== 'done') throw { msg: 'المكالمتان لم تكتملا.' };
+        if ((await F.getDoc(F.doc(db, 'salons', slug))).exists()) throw { msg: 'هذا الرابط مستعمل لصالون آخر.' };
+        if (!(await F.getDocs(F.query(F.collection(db, 'salons'), F.where('ownerPhone', '==', cur.ownerPhone)))).empty) throw { msg: 'هذا الرقم مسجّل لصالون آخر.' };
+        sApp = App.initializeApp(firebaseConfig, 'ap-' + Date.now()); const sA = A.getAuth(sApp), ouid = (await A.createUserWithEmailAndPassword(sA, un + '@local.salon', pw)).user.uid; await A.signOut(sA);
+        try {
+          const b = F.writeBatch(db);
+          b.set(F.doc(db, 'users', ouid), { role: 'owner', status: 'active', salonId: slug, name: cur.ownerName });
+          b.set(F.doc(db, 'salons', slug), { name: cur.salonName, slug, status: 'active', ownerUid: ouid, ownerPhone: cur.ownerPhone, governorateId: cur.governorateId, areaId: cur.areaId, createdAt: F.serverTimestamp(), createdBy: u.uid });
+          b.update(ref, { status: 'approved', salonId: slug, decidedBy: u.uid, decidedAt: Date.now() }); await b.commit();
+        } catch (e) { throw { msg: `أُنشئ حساب ${un} لكن فشل الحفظ (${e.code}). احذفي الحساب من Authentication ثم أعيدي.` }; }
+        await F.updateDoc(F.doc(db, 'salons', slug), { address: cur.address, whatsapp: cur.whatsapp, whatsapp2: cur.whatsapp2 || null, activityType: cur.activityType, hours: cur.hours, applicationId: x.id }).catch(() => {});
+        await audit('application.approve', x.id + '>' + slug).catch(() => {}); say(`تمت الموافقة. الصالون: /s/${slug} واسم المستخدم: ${un}. سلّمي كلمة السر لها ولا تحتفظي بها.`, 'ok');
+      } catch (e) { btn.disabled = false; say(e.msg || ({ 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.' }[e.code] || 'تعذر التنفيذ: ' + (e.code || e.message)), 'bad'); }
+      finally { if (sApp) App.deleteApp(sApp).catch(() => {}); }
+    };
+  });
 }
 tab(1);
 </script></body></html>
