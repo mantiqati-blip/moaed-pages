@@ -24,7 +24,7 @@ label{display:block;font-weight:600;margin:12px 0 4px}input,select{width:100%;fo
 import { configured, auth, db } from './js/fb.js';
 import { firebaseConfig } from './js/firebase-config.js';
 import { cellKeys } from './js/cells.js';
-import { summarize, validatePayment, money, effectiveFees, validFee } from './js/finance.js';
+import { summarize, validatePayment, money, effectiveFees, validFee, currentPeriod, canClose, periodRecord } from './js/finance.js';
 import { toCSV, bookingColumns, download, dateOf, timeOf, STATUS } from './js/export.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -146,12 +146,12 @@ async function accountsTab() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   try {
     const ss = await F.getDocs(F.collection(db, 'salons')), done = (await F.getDocs(F.query(F.collection(db, 'bookings'), F.where('status', '==', 'completed')))).docs.map((d) => d.data());
-    const R = await Promise.all(ss.docs.map(async (sd) => { const ps = (await F.getDocs(F.collection(db, 'salons', sd.id, 'payments'))).docs.map((d) => d.data()); return { id: sd.id, name: sd.data().name, S: summarize(done.filter((b) => b.salonId === sd.id), ps) }; }));
+    const R = await Promise.all(ss.docs.map(async (sd) => { const [pg, pp] = await Promise.all([F.getDocs(F.collection(db, 'salons', sd.id, 'payments')), F.getDocs(F.collection(db, 'salons', sd.id, 'periods')).catch(() => ({ docs: [], size: 0 }))]); const last = pp.docs.map((d) => d.data().closedAt || 0).sort((a, b) => b - a)[0] || 0, cur = currentPeriod(done.filter((b) => b.salonId === sd.id), pg.docs.map((d) => d.data()), last); return { id: sd.id, name: sd.data().name, last, nPer: pp.size, S: summarize(cur.bookings, cur.payments) }; }));
     if (!R.length) { v.innerHTML = '<div class="row">لا توجد صالونات.</div>'; return; }
     const tot = R.reduce((n, r) => n + r.S.remaining, 0);
     v.innerHTML = `<div class="row" style="text-align:center"><div class="m">إجمالي المتبقي على الصالونات</div><b style="font-size:26px;color:var(--ac)">${money(tot)}</b></div>` +
-      R.map((r, i) => `<div class="row s"><div><b>${esc(r.name)}</b><div class="m">${r.S.count} حجز مكتمل · مستحق ${money(r.S.due)} · مسدد ${money(r.S.paid)}</div><div>المتبقي: <b>${money(r.S.remaining)}</b></div></div>
-      <button data-i="${i}" ${r.S.remaining > 0 ? '' : 'disabled'}>تسجيل تسديد</button></div>`).join('') + '<div id="msg" class="m" role="status"></div>';
+      R.map((r, i) => `<div class="row s"><div><b>${esc(r.name)}</b><div class="m">${r.S.count} حجز مكتمل · مستحق ${money(r.S.due)} · مسدد ${money(r.S.paid)}</div><div>المتبقي: <b>${money(r.S.remaining)}</b></div><div class="m">${r.nPer ? `آخر تصفير: ${new Date(r.last + 3 * 36e5).toISOString().slice(0, 10)} (${r.nPer} فترة مؤرشفة)` : 'لم يُصفَّر بعد'}</div></div>
+      <div><button data-i="${i}" ${r.S.remaining > 0 ? '' : 'disabled'}>تسجيل تسديد</button> <button data-z="${i}" ${canClose(r.S) ? '' : 'disabled'} title="يتفعل عندما يكون المتبقي صفرًا">تصفير الحساب</button></div></div>`).join('') + '<div id="msg" class="m" role="status"></div>';
     v.querySelectorAll('button[data-i]').forEach((btn) => btn.onclick = async () => {
       const r = R[btn.dataset.i], raw = prompt(`مبلغ التسديد لصالون ${r.name} (المتبقي ${r.S.remaining}):`); if (raw == null) return;
       const amt = Number(String(raw).replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/[,،\s]/g, '')), bad = validatePayment(amt, r.S.remaining);
@@ -159,6 +159,18 @@ async function accountsTab() {
       btn.disabled = true;
       try { await F.addDoc(F.collection(db, 'salons', r.id, 'payments'), { amount: amt, by: u.uid, at: Date.now() }); await audit('payment', r.id + ':' + amt).catch(() => {}); accountsTab(); }
       catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر التسجيل: ' + (e.code || e.message); }
+    });
+    v.querySelectorAll('button[data-z]').forEach((btn) => btn.onclick = async () => {
+      const r = R[btn.dataset.z], say = (t) => { $('msg').className = 'm bad'; $('msg').textContent = t; };
+      if (!confirm(`تصفير حساب ${r.name}؟\nيُؤرشف ${r.S.count} حجزًا (مستحق ${r.S.due}) وتبدأ فترة جديدة. لا تُحذف أي حجوزات.`)) return;
+      btn.disabled = true; const t0 = Date.now();                                  // الحجوزات والتسديدات بعد t0 تذهب للفترة الجديدة
+      try {
+        const [bk, pg, pp] = await Promise.all([F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', r.id), F.where('status', '==', 'completed'))), F.getDocs(F.collection(db, 'salons', r.id, 'payments')), F.getDocs(F.collection(db, 'salons', r.id, 'periods'))]);
+        const last = pp.docs.map((d) => d.data().closedAt || 0).sort((x, y) => y - x)[0] || 0, cur = currentPeriod(bk.docs.map((d) => d.data()), pg.docs.map((d) => d.data()), last), S = summarize(cur.bookings, cur.payments);
+        if (!canClose(S)) { btn.disabled = false; return say('تغيّرت الأرقام: المتبقي ' + S.remaining + '. أعيدي تحميل الصفحة.'); }
+        await F.addDoc(F.collection(db, 'salons', r.id, 'periods'), periodRecord(S, last, t0, u.uid));
+        await audit('period.close', `${r.id}: ${S.count} bookings, due ${S.due}`).catch(() => {}); accountsTab();
+      } catch (e) { btn.disabled = false; say('تعذر التصفير: ' + (e.code || e.message)); }
     });
   } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الحسابات: ' + esc(e.code) + '</div>'; }
 }
