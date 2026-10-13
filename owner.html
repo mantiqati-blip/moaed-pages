@@ -22,7 +22,7 @@ label{display:block;font-weight:600;margin:12px 0 4px}input,select{font:inherit;
 <main id="app"><div class="row">جارٍ التحقق من الدخول...</div></main>
 <script type="module">
 import { configured, auth, db } from './js/fb.js';
-import { summarize, money } from './js/finance.js';
+import { summarize, money, effectiveFees } from './js/finance.js';
 import { bookSlot } from './js/booking.js';
 import { cellKeys, toEpoch } from './js/cells.js';
 import { slotsFor, fmt } from './js/avail.js';
@@ -179,6 +179,7 @@ async function manual() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>'; let sets, SV, ST;
   try { [sets, SV, ST] = await Promise.all([F.getDoc(F.doc(db, 'platform', 'settings')).then((d) => d.data() || {}), F.getDocs(F.collection(db, 'salons', sid, 'services')), F.getDocs(F.collection(db, 'salons', sid, 'staff'))]); }
   catch (e) { v.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(e.code) + '</div>'; return; }
+  sets = effectiveFees(salon, sets);
   const svc = SV.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.active), stf = ST.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.status === 'active'), H = salon.hours;
   if (!stf.length) { v.innerHTML = '<div class="row">لا توجد موظفة معتمدة بعد. اطلبي إضافتها من تبويب الموظفات وتنتظرين موافقة الإدارة.</div>'; return; }
   if (!H) { v.innerHTML = '<div class="row">حدّدي ساعات الدوام أولًا من تبويب «الدوام».</div>'; return; }
