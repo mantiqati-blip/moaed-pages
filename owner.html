@@ -42,6 +42,7 @@ import { slotsFor, fmt } from './js/avail.js';
 import { toXLSX, downloadX, bookingColumns, dateOf } from './js/export.js';
 import qrcode from './js/qr.js';
 import { errText } from './js/strings.js';
+import { startNotifier } from './js/notify.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const latin = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
@@ -106,10 +107,17 @@ function hours() {
 async function staff() {
   const v = $('v'), col = F.collection(db, 'salons', sid, 'staff');
   const L = (await F.getDocs(col)).docs.map((d) => ({ id: d.id, ...d.data() }));
-  v.innerHTML = (L.length ? L.map((x) => `<div class="row s"><b>${esc(x.name)}</b><span class="tag ${x.status === 'active' ? '' : 'off'}">${x.status === 'active' ? 'فعّالة' : x.status === 'pending' ? 'بانتظار موافقة الإدارة' : esc(x.status)}</span></div>`).join('')
+  v.innerHTML = (L.length ? L.map((x) => `<div class="row s"><b>${esc(x.name)}</b><span class="tag ${x.status === 'active' ? '' : 'off'}">${x.status === 'active' ? 'فعّالة' : x.status === 'pending' ? 'بانتظار موافقة الإدارة' : esc(x.status)}</span>${x.status === 'active' ? `<div class="s" style="width:100%;justify-content:flex-start;gap:14px;margin-top:6px"><span class="m">صلاحيات:</span><label style="margin:0;font-weight:400"><input type="checkbox" style="width:auto" data-p="accounts" ${x.perms?.accounts ? 'checked' : ''}> ترى الحسابات</label><label style="margin:0;font-weight:400"><input type="checkbox" style="width:auto" data-p="allBookings" ${x.perms?.allBookings ? 'checked' : ''}> ترى حجوزات كل الموظفات</label><button data-sp="${esc(x.id)}">حفظ</button><span class="m" data-pm role="status"></span></div>` : ''}</div>`).join('')
     : '<div class="row">لا توجد موظفات بعد.</div>') +
     `<form id="f" class="row"><b>إضافة موظفة</b><label>الاسم (ثلاثي)</label><input id="n" required>
     <div class="m">يُرسل الطلب للإدارة، وتُنشأ لها بيانات الدخول بعد الموافقة.</div><div id="msg" class="m" role="status"></div><button class="p">إرسال الطلب</button></form>`;
+  v.querySelectorAll('[data-sp]').forEach((b) => b.onclick = async () => {
+    const row = b.closest('.row'), m = row.querySelector('[data-pm]'), perms = {}; row.querySelectorAll('input[data-p]').forEach((c) => perms[c.dataset.p] = c.checked);
+    b.disabled = true;
+    try { await F.updateDoc(F.doc(col, b.dataset.sp), { perms }); m.className = 'm ok'; m.textContent = 'تم الحفظ.'; }
+    catch (e) { m.className = 'm bad'; m.textContent = 'تعذر الحفظ: ' + errText(e); }
+    b.disabled = false;
+  });
   $('f').onsubmit = async (ev) => {
     ev.preventDefault(); const name = $('n').value.trim(); if (name.split(/\s+/).length < 3) return say('الاسم لازم يكون ثلاثيًا.', 'bad');
     try { await F.addDoc(col, { name, status: 'pending', createdAt: F.serverTimestamp() }); staff(); } catch (e) { say('تعذر الإرسال: ' + errText(e), 'bad'); }
@@ -248,4 +256,6 @@ async function manual() {
   };
 }
 tab(4);
+startNotifier({ F, db, role: 'owner', header: document.querySelector('header'), go: tab, watches: [
+  { kind: 'booking', q: F.query(F.collection(db, 'bookings'), F.where('salonId', '==', sid)), label: 'طلبات إلغاء بانتظار قرارك', tab: 4 }] });
 </script></body></html>
