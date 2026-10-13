@@ -25,6 +25,7 @@ import { configured, auth, db } from './js/fb.js';
 import { firebaseConfig } from './js/firebase-config.js';
 import { cellKeys } from './js/cells.js';
 import { summarize, validatePayment, money } from './js/finance.js';
+import { toCSV, bookingColumns, download, dateOf, timeOf, STATUS } from './js/export.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const AD = '٠١٢٣٤٥٦٧٨٩', latin = (s) => String(s).replace(/[٠-٩]/g, (d) => AD.indexOf(d));
@@ -42,9 +43,9 @@ let gov = [], areas = [];
 const [g, a] = await Promise.all([F.getDocs(F.collection(db, 'governorates')), F.getDocs(F.collection(db, 'areas'))]);
 gov = g.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
 areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
-app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab][n - 1](); };
-[1, 2, 3, 4, 5].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings][n - 1](); };
+[1, 2, 3, 4, 5, 6].forEach((i) => $('t' + i).onclick = () => tab(i));
 async function list() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   const s = await F.getDocs(F.collection(db, 'salons')), L = s.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -160,6 +161,27 @@ async function accountsTab() {
       catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر التسجيل: ' + (e.code || e.message); }
     });
   } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الحسابات: ' + esc(e.code) + '</div>'; }
+}
+let bkF = { salon: '', status: '', from: '', to: '' };
+async function allBookings() {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>'; let all, salons = {};
+  try {
+    (await F.getDocs(F.collection(db, 'salons'))).docs.forEach((d) => salons[d.id] = d.data().name || d.id);
+    all = (await F.getDocs(F.collection(db, 'bookings'))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => y.start - x.start);
+  } catch (e) { v.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(e.code) + '</div>'; return; }
+  const L = all.filter((b) => (!bkF.salon || b.salonId === bkF.salon) && (!bkF.status || b.status === bkF.status) && (!bkF.from || dateOf(b.start) >= bkF.from) && (!bkF.to || dateOf(b.start) <= bkF.to));
+  const opt = (o, cur, all0) => `<option value="">${all0}</option>` + Object.entries(o).map(([k, n]) => `<option value="${esc(k)}" ${k === cur ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  v.innerHTML = `<div class="row"><div class="g2"><div><label>الصالون</label><select id="fs">${opt(salons, bkF.salon, 'الكل')}</select></div><div><label>الحالة</label><select id="ft">${opt(STATUS, bkF.status, 'الكل')}</select></div>
+    <div><label>من تاريخ</label><input type="date" id="ff" value="${bkF.from}"></div><div><label>إلى تاريخ</label><input type="date" id="fe" value="${bkF.to}"></div></div>
+    <div class="s" style="margin-top:10px"><span class="m">${L.length} حجز من ${all.length}</span><button class="p" id="ex" ${L.length ? '' : 'disabled'}>تصدير النتيجة (Excel)</button></div></div>` +
+    L.slice(0, 100).map((b) => `<div class="row"><div class="s"><b>${esc(salons[b.salonId] || b.salonId)}</b><span class="m">${esc(STATUS[b.status] || b.status)}</span></div>
+    <div class="m">${dateOf(b.start)} · ${timeOf(b.start)} · ${esc(b.customerName || (b.source === 'blocked' ? 'وقت مغلق' : '—'))} <span dir="ltr">${esc(b.customerPhone || '')}</span></div></div>`).join('') +
+    (L.length > 100 ? `<div class="m">تظهر أول ١٠٠ فقط. التصدير يشمل كل النتيجة (${L.length}).</div>` : '') + '<div id="msg" class="m" role="status"></div>';
+  [['fs', 'salon'], ['ft', 'status'], ['ff', 'from'], ['fe', 'to']].forEach(([i, k]) => $(i).onchange = () => { bkF[k] = $(i).value; allBookings(); });
+  $('ex').onclick = async () => {
+    download(`bookings-${dateOf(Date.now())}.csv`, toCSV(L, bookingColumns({ salons })));
+    await audit('export.bookings', `${L.length} rows`).catch(() => {}); $('msg').className = 'm ok'; $('msg').textContent = `صُدّر ${L.length} حجز.`;
+  };
 }
 tab(1);
 </script></body></html>
