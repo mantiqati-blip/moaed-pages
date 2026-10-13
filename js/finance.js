@@ -12,3 +12,9 @@ export function validatePayment(amount, remaining) {
   return null;
 }
 export const money = (n) => Number(n).toLocaleString('en') + ' د.ع';
+// الرسم والاستقطاع الفعليان لصالون: قيمته الخاصة إن وُجدت (يحددها الأدمن) وإلا الافتراضي للمنصة.
+export function effectiveFees(salon, settings) {
+  const pick = (k) => (Number.isInteger(salon?.[k]) ? salon[k] : settings?.[k]);
+  return { ...settings, customerFee: pick('customerFee'), salonCut: pick('salonCut') };
+}
+export const validFee = (n) => Number.isInteger(n) && n >= 0 && n <= 1000000;
