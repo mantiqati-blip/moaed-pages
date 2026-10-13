@@ -70,7 +70,13 @@ try {
           tm.innerHTML = sl.length ? `<div class="chips" style="margin-top:8px">${sl.map((x) => `<button class="chip" data-m="${x.m}">${fmt(x.m)}</button>`).join('')}</div>` : '<div class="m">لا توجد أوقات متاحة بهذا اليوم.</div>';
           tm.querySelectorAll('[data-m]').forEach((t) => t.onclick = async () => {
             if (!confirm(`تأكيد نقل الموعد إلى ${day} الساعة ${fmt(Number(t.dataset.m))}؟ لا يمكن تعديله بعدها.`)) return; t.disabled = true;
-            try { await rescheduleBooking({ db, fs: { doc: F.doc, runTransaction: F.runTransaction, deleteField: F.deleteField }, user: auth.currentUser, bookingId: b.id, date: day, startMin: Number(t.dataset.m), cutoffHours: cut }); location.reload(); }
+            try {
+              if (sets0.useServerReschedule) {                                                       // التعديل من السيرفر عند تفعيله من platform/settings
+                const FN = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js');
+                await FN.httpsCallable(FN.getFunctions(fbApp, 'europe-west1'), 'rescheduleBooking')({ bookingId: b.id, date: day, startMin: Number(t.dataset.m) });
+              } else
+              await rescheduleBooking({ db, fs: { doc: F.doc, runTransaction: F.runTransaction, deleteField: F.deleteField }, user: auth.currentUser, bookingId: b.id, date: day, startMin: Number(t.dataset.m), cutoffHours: cut });
+              location.reload(); }
             catch (e) { t.disabled = false; document.getElementById('mg').textContent = { SLOT_TAKEN: 'هذا الوقت انحجز قبل لحظات. اختاري وقتًا آخر.', TOO_LATE: 'انتهت مهلة التعديل، تواصلي مع الصالون.', ALREADY_RESCHEDULED: 'تم تعديل هذا الحجز سابقًا.' }[e.message] || ('تعذر تعديل الموعد: ' + (e.code || e.message)); }
           });
         } catch (e) { tm.innerHTML = '<div class="m bad">تعذر تحميل الأوقات.</div>'; }
