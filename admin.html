@@ -42,6 +42,7 @@ import { validateText, buildMessage, threadAfter, validateAnnouncement, buildAnn
 import { toXLSX, downloadX, bookingColumns, dateOf, timeOf, STATUS } from './js/export.js';
 import { errText } from './js/strings.js';
 import { startNotifier } from './js/notify.js';
+import { renderStats } from './js/charts.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const AD = '٠١٢٣٤٥٦٧٨٩', latin = (s) => String(s).replace(/[٠-٩]/g, (d) => AD.indexOf(d));
@@ -59,9 +60,9 @@ let gov = [], areas = [];
 const [g, a] = await Promise.all([F.getDocs(F.collection(db, 'governorates')), F.getDocs(F.collection(db, 'areas'))]);
 gov = g.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
 areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
-app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button><button id="t7">طلبات الانضمام</button><button id="t8">الرسوم</button><button id="t9">الرسائل</button><button id="t10">التقييمات</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings, appsTab, feesTab, supportTab, reviewsTab][n - 1](); };
-[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button><button id="t7">طلبات الانضمام</button><button id="t8">الرسوم</button><button id="t9">الرسائل</button><button id="t10">التقييمات</button><button id="t11">الإحصائيات</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings, appsTab, feesTab, supportTab, reviewsTab, statsTab][n - 1](); };
+[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].forEach((i) => $('t' + i).onclick = () => tab(i));
 // نسخة عامة بدون بيانات خاصة (لا هاتف ولا حساب) تعرضها الصفحة الرئيسية. فشلها لا يمنع العملية الأصلية.
 const pubSync = (x, st) => F.setDoc(F.doc(db, 'publicSalons', x.id || x.slug), { name: x.name, slug: x.slug || x.id, governorateId: x.governorateId || '', areaId: x.areaId || '', status: st || x.status }).catch(() => {});
 async function list() {
@@ -348,6 +349,18 @@ async function appsTab() {
   });
 }
 // إشراف على التقييمات: اختيار صالون ثم إخفاء تقييم مسيء (hidden=true ويُمسح التعليق). لا حذف، فلا تعيد الزبونة التقييم على نفس الحجز.
+async function statsTab(days = 14, cache = null) {
+  const v = $('v');
+  if (!cache) {
+    v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+    try {
+      const [ss, bs] = await Promise.all([F.getDocs(F.collection(db, 'salons')), F.getDocs(F.collection(db, 'bookings'))]);
+      cache = { salons: Object.fromEntries(ss.docs.map((d) => [d.id, d.data().name || d.id])), bookings: bs.docs.map((d) => d.data()) };
+    } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الإحصائيات: ' + esc(e.code) + '</div>'; return; }
+  }
+  v.innerHTML = renderStats(cache.bookings, { days, mode: 'admin', salons: cache.salons, money });
+  v.querySelectorAll('button[data-d]').forEach((b) => b.onclick = () => statsTab(Number(b.dataset.d), cache));
+}
 async function reviewsTab() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   let S; try { S = (await F.getDocs(F.collection(db, 'salons'))).docs.map((d) => ({ id: d.id, name: d.data().name || d.id })); } catch (e) { v.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(e.code) + '</div>'; return; }

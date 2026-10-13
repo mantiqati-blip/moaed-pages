@@ -47,6 +47,7 @@ import { errText } from './js/strings.js';
 import { startNotifier } from './js/notify.js';
 import { validateCoupon, buildCoupon, couponState, describe, genCode, normCode, LABEL_MAX } from './js/coupons.js';
 import { summarize as summarizeReviews, stars } from './js/reviews.js';
+import { renderStats } from './js/charts.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const latin = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
@@ -62,9 +63,9 @@ $('me').textContent = me.name || ''; $('out').hidden = false; $('out').onclick =
 const sid = me.salonId, sref = F.doc(db, 'salons', sid);
 const salon = (await F.getDoc(sref)).data() || {}; $('sn').textContent = salon.name || 'لوحة الصالون';
 const note = salon.status === 'active' ? '' : '<div class="row bad">صالونك موقوف حاليًا ولا يظهر للزبونات. تواصلي مع الإدارة.</div>';
-app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button><button id="t5">الحسابات</button><button id="t6">حجز يدوي</button><button id="t7">رابط وQR</button><button id="t8">الرسائل</button><button id="t9">العروض والتقييمات</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings, accounts, manual, linkQr, messages, offers][n - 1](); };
-[1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button><button id="t5">الحسابات</button><button id="t6">حجز يدوي</button><button id="t7">رابط وQR</button><button id="t8">الرسائل</button><button id="t9">العروض والتقييمات</button><button id="t10">الإحصائيات</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings, accounts, manual, linkQr, messages, offers, stats][n - 1](); };
+[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((i) => $('t' + i).onclick = () => tab(i));
 const msgEl = () => $('msg'), say = (t, c = '') => { msgEl().className = 'm ' + c; msgEl().textContent = t; };
 function linkQr() {
   const url = new URL('./?salon=' + encodeURIComponent(sid), location.href).href, q = qrcode(0, 'M'); q.addData(url); q.make();
@@ -253,6 +254,16 @@ async function messages() {
       } catch (e) { if (ev.submitter) ev.submitter.disabled = false; sm.className = 'm bad'; sm.textContent = 'تعذر الإرسال: ' + errText(e); }
     };
   } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الرسائل: ' + esc(e.code) + '</div>'; }
+}
+async function stats(days = 14, cache = null) {
+  const v = $('v');
+  if (!cache) {
+    v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+    try { cache = (await F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', sid)))).docs.map((d) => d.data()); }
+    catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الإحصائيات: ' + esc(e.code) + '</div>'; return; }
+  }
+  v.innerHTML = renderStats(cache, { days, mode: 'salon', money });
+  v.querySelectorAll('button[data-d]').forEach((b) => b.onclick = () => stats(Number(b.dataset.d), cache));
 }
 async function offers() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
