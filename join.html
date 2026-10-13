@@ -29,7 +29,15 @@ try {
   gov = g.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order); areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
 } catch (e) { app.innerHTML += '<div class="card bad">تعذر التحميل. أعيدي المحاولة لاحقًا.</div>'; throw 0; }
 const DAYS = [[6, 'السبت'], [0, 'الأحد'], [1, 'الاثنين'], [2, 'الثلاثاء'], [3, 'الأربعاء'], [4, 'الخميس'], [5, 'الجمعة']];
-app.innerHTML = `<h1>انضمام صالون أو عيادة تجميل</h1><div class="m">املئي الطلب، وتتواصل معك الإدارة بمكالمة صوتية ثم مكالمة فيديو للتحقق قبل الموافقة.</div>
+// حالة آخر طلب أرسلته هذه المتصفحة (الدخول مجهول، فتظهر على نفس الجهاز فقط). لا يمنع ذلك تقديم طلب جديد.
+let banner = '';
+try {
+  const q = await F.getDocs(F.query(F.collection(db, 'applications'), F.where('createdBy', '==', auth.currentUser.uid)));
+  const last = q.docs.map((d) => d.data()).sort((x, y) => (y.createdAt || 0) - (x.createdAt || 0))[0];
+  const T = { pending: ['طلبك قيد المراجعة', 'لسه ما صدر قرار. ستتصل بك الإدارة على رقمك للتحقق.'], needs_info: ['مطلوب استكمال بيانات', ''], rejected: ['لم يُقبل طلبك', ''], approved: ['تمت الموافقة على طلبك ✓', 'ستسلّمك الإدارة رابط الصالون وبيانات الدخول بالاتصال أو الواتساب.'] }[last?.status];
+  if (T) banner = `<div class="card" role="status"><b>${T[0]}</b>${last.reason ? `<div class="m" style="margin-top:6px">السبب: ${esc(last.reason)}</div>` : ''}${T[1] ? `<div class="m" style="margin-top:6px">${T[1]}</div>` : ''}<div class="m" style="margin-top:6px">آخر طلب باسم: ${esc(last.salonName)}${last.status === 'needs_info' || last.status === 'rejected' ? '. تقدرين تقدمين طلبًا جديدًا بالنموذج تحت.' : ''}</div></div>`;
+} catch (e) { /* الحالة اختيارية: لا تعطّل النموذج */ }
+app.innerHTML = banner + `<h1>انضمام صالون أو عيادة تجميل</h1><div class="m">املئي الطلب، وتتواصل معك الإدارة بمكالمة صوتية ثم مكالمة فيديو للتحقق قبل الموافقة.</div>
 <form id="f" class="card"><h2>بياناتك</h2>
 <label for="on">اسمك (ثلاثي)</label><input id="on" autocomplete="name" required>
 <label for="ph">رقم هاتفك (للتواصل والتحقق، لا يظهر للزبونات)</label><input id="ph" dir="ltr" inputmode="numeric" placeholder="07XXXXXXXXX" autocomplete="tel" required>
