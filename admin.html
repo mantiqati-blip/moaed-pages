@@ -37,6 +37,7 @@ import { configured, auth, db, app as fbApp } from './js/fb.js';
 import { firebaseConfig } from './js/firebase-config.js';
 import { cellKeys } from './js/cells.js';
 import { summarize, validatePayment, money, effectiveFees, validFee, currentPeriod, canClose, periodRecord } from './js/finance.js';
+import { validateApproval, approvalDocs, rejectUpdate } from './js/payreq.js';
 import { toXLSX, downloadX, bookingColumns, dateOf, timeOf, STATUS } from './js/export.js';
 import { errText } from './js/strings.js';
 import { startNotifier } from './js/notify.js';
@@ -170,11 +171,11 @@ async function accountsTab() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   try {
     const ss = await F.getDocs(F.collection(db, 'salons')), done = (await F.getDocs(F.query(F.collection(db, 'bookings'), F.where('status', '==', 'completed')))).docs.map((d) => d.data());
-    const R = await Promise.all(ss.docs.map(async (sd) => { const [pg, pp] = await Promise.all([F.getDocs(F.collection(db, 'salons', sd.id, 'payments')), F.getDocs(F.collection(db, 'salons', sd.id, 'periods')).catch(() => ({ docs: [], size: 0 }))]); const last = pp.docs.map((d) => d.data().closedAt || 0).sort((a, b) => b - a)[0] || 0, cur = currentPeriod(done.filter((b) => b.salonId === sd.id), pg.docs.map((d) => d.data()), last); return { id: sd.id, name: sd.data().name, last, nPer: pp.size, per: pp.docs.map((d) => ({ id: d.id, at: d.data().closedAt || 0 })).sort((a, b) => b.at - a.at), obj: (await Promise.all(pp.docs.map((d) => F.getDoc(F.doc(db, 'salons', sd.id, 'periods', d.id, 'objections', 'main')).then((x) => x.exists() ? { pid: d.id, ...x.data() } : null).catch(() => null)))).filter((x) => x && x.status === 'open'), S: summarize(cur.bookings, cur.payments) }; }));
+    const R = await Promise.all(ss.docs.map(async (sd) => { const [pg, pp, pq] = await Promise.all([F.getDocs(F.collection(db, 'salons', sd.id, 'payments')), F.getDocs(F.collection(db, 'salons', sd.id, 'periods')).catch(() => ({ docs: [], size: 0 })), F.getDocs(F.collection(db, 'salons', sd.id, 'paymentRequests')).catch(() => ({ docs: [] }))]); const last = pp.docs.map((d) => d.data().closedAt || 0).sort((a, b) => b - a)[0] || 0, cur = currentPeriod(done.filter((b) => b.salonId === sd.id), pg.docs.map((d) => d.data()), last); return { id: sd.id, name: sd.data().name, reqs: pq.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.status === 'pending').sort((x, y) => x.at - y.at), last, nPer: pp.size, per: pp.docs.map((d) => ({ id: d.id, at: d.data().closedAt || 0 })).sort((a, b) => b.at - a.at), obj: (await Promise.all(pp.docs.map((d) => F.getDoc(F.doc(db, 'salons', sd.id, 'periods', d.id, 'objections', 'main')).then((x) => x.exists() ? { pid: d.id, ...x.data() } : null).catch(() => null)))).filter((x) => x && x.status === 'open'), S: summarize(cur.bookings, cur.payments) }; }));
     if (!R.length) { v.innerHTML = '<div class="row">لا توجد صالونات.</div>'; return; }
-    const tot = R.reduce((n, r) => n + r.S.remaining, 0);
-    v.innerHTML = `<div class="row" style="text-align:center"><div class="m">إجمالي المتبقي على الصالونات</div><b style="font-size:26px;color:var(--ac)">${money(tot)}</b></div>` +
-      R.map((r, i) => `<div class="row s"><div><b>${esc(r.name)}</b><div class="m">${r.S.count} حجز مكتمل · مستحق ${money(r.S.due)} · مسدد ${money(r.S.paid)}</div><div>المتبقي: <b>${money(r.S.remaining)}</b></div><div class="m">${r.nPer ? `آخر تصفير: ${new Date(r.last + 3 * 36e5).toISOString().slice(0, 10)} (${r.nPer} فترة مؤرشفة)` : 'لم يُصفَّر بعد'}</div>${r.per.length ? `<div class="m">الكشوف: ${r.per.map((p) => `<a href="statement.html?salon=${encodeURIComponent(r.id)}&period=${p.id}" target="_blank" rel="noopener">${new Date(p.at + 3 * 36e5).toISOString().slice(0, 10)}</a>`).join(' · ')}</div>` : ''}${r.obj.map((o, j) => `<div class="m bad">اعتراض مفتوح: ${esc(o.reason)} <button data-ob="${i}:${j}">البت فيه</button></div>`).join('')}</div>
+    const tot = R.reduce((n, r) => n + r.S.remaining, 0); const nReq = R.reduce((n, r) => n + r.reqs.length, 0);
+    v.innerHTML = `<div class="row" style="text-align:center"><div class="m">إجمالي المتبقي على الصالونات</div><b style="font-size:26px;color:var(--ac)">${money(tot)}</b>${nReq ? `<div class="m bad">طلبات تسديد بانتظار تأكيدك: ${nReq}</div>` : ''}</div>` +
+      R.map((r, i) => `<div class="row s"><div><b>${esc(r.name)}</b><div class="m">${r.S.count} حجز مكتمل · مستحق ${money(r.S.due)} · مسدد ${money(r.S.paid)}</div><div>المتبقي: <b>${money(r.S.remaining)}</b></div><div class="m">${r.nPer ? `آخر تصفير: ${new Date(r.last + 3 * 36e5).toISOString().slice(0, 10)} (${r.nPer} فترة مؤرشفة)` : 'لم يُصفَّر بعد'}</div>${r.per.length ? `<div class="m">الكشوف: ${r.per.map((p) => `<a href="statement.html?salon=${encodeURIComponent(r.id)}&period=${p.id}" target="_blank" rel="noopener">${new Date(p.at + 3 * 36e5).toISOString().slice(0, 10)}</a>`).join(' · ')}</div>` : ''}${r.obj.map((o, j) => `<div class="m bad">اعتراض مفتوح: ${esc(o.reason)} <button data-ob="${i}:${j}">البت فيه</button></div>`).join('')}${r.reqs.map((q, j) => `<div class="m" style="margin-top:6px">طلب تسديد <b>${money(q.amount)}</b> · ${new Date(q.at + 3 * 36e5).toISOString().slice(0, 10)}${q.note ? ' · ' + esc(q.note) : ''} <button data-ap="${i}:${j}">تم الاستلام</button> <button data-rj="${i}:${j}">رفض</button></div>`).join('')}</div>
       <div><button data-i="${i}" ${r.S.remaining > 0 ? '' : 'disabled'}>تسجيل تسديد</button> <button data-z="${i}" ${canClose(r.S) ? '' : 'disabled'} title="يتفعل عندما يكون المتبقي صفرًا">تصفير الحساب</button></div></div>`).join('') + '<div id="msg" class="m" role="status"></div>';
     v.querySelectorAll('button[data-i]').forEach((btn) => btn.onclick = async () => {
       const r = R[btn.dataset.i], raw = prompt(`مبلغ التسديد لصالون ${r.name} (المتبقي ${r.S.remaining}):`); if (raw == null) return;
@@ -183,6 +184,24 @@ async function accountsTab() {
       btn.disabled = true;
       try { await F.addDoc(F.collection(db, 'salons', r.id, 'payments'), { amount: amt, by: u.uid, at: Date.now() }); await audit('payment', r.id + ':' + amt).catch(() => {}); accountsTab(); }
       catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر التسجيل: ' + errText(e); }
+    });
+    v.querySelectorAll('button[data-ap]').forEach((btn) => btn.onclick = async () => {
+      const [i, j] = btn.dataset.ap.split(':'), r = R[i], q = r.reqs[j], bad = validateApproval(q, r.S.remaining);
+      if (bad) { $('msg').className = 'm bad'; $('msg').textContent = bad; return; }
+      if (!confirm(`تأكيد استلام ${money(q.amount)} من ${r.name}؟\nيُسجَّل تسديدًا ويقلّ المتبقي.`)) return;
+      btn.disabled = true;
+      try {
+        const pref = F.doc(F.collection(db, 'salons', r.id, 'payments')), w = approvalDocs({ req: q, paymentId: pref.id, uid: u.uid, now: Date.now() }), b = F.writeBatch(db);
+        b.set(pref, w.payment); b.update(F.doc(db, 'salons', r.id, 'paymentRequests', q.id), w.update); await b.commit();   // ذرّية: التسديد والتأكيد معًا أو لا شيء
+        await audit('payment.approve', r.id + ':' + q.id + ':' + q.amount).catch(() => {}); accountsTab();
+      } catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر التأكيد: ' + errText(e); }
+    });
+    v.querySelectorAll('button[data-rj]').forEach((btn) => btn.onclick = async () => {
+      const [i, j] = btn.dataset.rj.split(':'), r = R[i], q = r.reqs[j], raw = prompt(`سبب رفض طلب ${r.name} (${money(q.amount)}):`); if (raw == null) return;
+      const w = rejectUpdate(raw, u.uid, Date.now()); if (w.error) { $('msg').className = 'm bad'; $('msg').textContent = w.error; return; }
+      btn.disabled = true;
+      try { await F.updateDoc(F.doc(db, 'salons', r.id, 'paymentRequests', q.id), w.update); await audit('payment.reject', r.id + ':' + q.id).catch(() => {}); accountsTab(); }
+      catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر الرفض: ' + errText(e); }
     });
     v.querySelectorAll('button[data-ob]').forEach((btn) => btn.onclick = async () => {
       const [i, j] = btn.dataset.ob.split(':'), r = R[i], o = r.obj[j], yes = confirm(`اعتراض ${r.name}:\n${o.reason}\n\nموافق = قبول الاعتراض، إلغاء = رفضه`), note = prompt('اكتبي قرارك (٣ أحرف على الأقل):'); if (note == null || note.trim().length < 3) return;
