@@ -57,7 +57,7 @@ $('f').onsubmit = async (ev) => {
   $('go').disabled = true; er('جارٍ الإرسال...');
   const doc = { ownerName: on, ownerPhone: ph, salonName: $('sn').value.trim(), activityType: $('ty').value, governorateId: $('gv').value, areaId: $('ar').value, address: $('ad').value.trim(),
     whatsapp: wa, whatsapp2: w2 || null, staffCount: Number($('sc').value), hours, servicesText: $('sv').value.trim(), social: { instagram: $('ig').value.trim(), facebook: $('fb').value.trim(), tiktok: $('tk').value.trim() },
-    termsAccepted: true, termsVersion: 'draft-1', status: 'pending', calls: { voice: { status: 'none' }, video: { status: 'none' } }, uid: auth.currentUser.uid, createdAt: Date.now() };
+    acceptedTerms: true, termsVersion: 'draft-1', status: 'pending', calls: { voice: { status: 'none' }, video: { status: 'none' } }, createdBy: auth.currentUser.uid, createdAt: Date.now() };
   try { await F.addDoc(F.collection(db, 'applications'), doc);
     app.innerHTML = '<h1>وصل طلبك ✓</h1><div class="card"><b>شكرًا ' + esc(on.split(' ')[0]) + '.</b><div class="m" style="margin-top:8px">راح تتصل بك الإدارة على الرقم ' + esc(ph) + ' لمكالمة صوتية ثم مكالمة فيديو للتحقق. بعدها نبلغك بالقرار.</div></div>';
   } catch (e) { $('go').disabled = false; er(e.code === 'permission-denied' ? 'تعذر إرسال الطلب حاليًا. حاولي لاحقًا.' : 'تعذر الإرسال. أعيدي المحاولة.'); }
