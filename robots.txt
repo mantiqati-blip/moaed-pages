@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /moaed-pages/admin.html
+Disallow: /moaed-pages/owner.html
+Disallow: /moaed-pages/staff.html
+Disallow: /moaed-pages/login.html
+Disallow: /moaed-pages/setup-check.html
+Disallow: /moaed-pages/statement.html
+Sitemap: https://mantiqati-blip.github.io/moaed-pages/sitemap.xml
