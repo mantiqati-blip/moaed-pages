@@ -18,7 +18,7 @@ select,input[type=text],input[type=tel]{font:inherit;width:100%;padding:12px;bor
 </style></head><body><header class="s"><b>موعد أنوثة</b><a href="?my=1" style="color:var(--ac);font-weight:700">حجوزاتي</a></header><main id="app"><div class="row">جارٍ التحميل...</div></main><footer style="max-width:560px;margin:8px auto 24px;padding:0 16px;font-size:13px;display:flex;gap:16px;justify-content:center"><a href="terms.html" style="color:var(--mute)">الشروط</a><a href="privacy.html" style="color:var(--mute)">الخصوصية</a></footer>
 <script type="module">
 import { configured, auth, db } from './js/fb.js';
-import { bookSlot } from './js/booking.js';
+import { bookSlot, rescheduleBooking } from './js/booking.js';
 import { slotsFor, fmt } from './js/avail.js';
 const app = document.getElementById('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -33,20 +33,41 @@ try {
   if (my) {
     const sets0 = (await F.getDoc(F.doc(db, 'platform', 'settings'))).data() || {}, cut = Number(sets0.cancelCutoffHours ?? 2);
     const L = (await F.getDocs(F.query(F.collection(db, 'bookings'), F.where('customerUid', '==', auth.currentUser.uid)))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.start - a.start);
-    const nm = {}, codes = {}, SA = { confirmed: 'مؤكد', completed: 'تمت الخدمة', no_show: 'لم تحضري', cancel_requested: 'طلب الإلغاء قيد المراجعة', pending_admin: 'طلب الإلغاء قيد المراجعة', cancelled: 'ملغي' };
-    for (const id of new Set(L.map((b) => b.salonId))) { try { nm[id] = (await F.getDoc(F.doc(db, 'salons', id))).data()?.name || id; } catch (e) { nm[id] = id; } }
+    const nm = {}, SD = {}, codes = {}, SA = { confirmed: 'مؤكد', completed: 'تمت الخدمة', no_show: 'لم تحضري', cancel_requested: 'طلب الإلغاء قيد المراجعة', pending_admin: 'طلب الإلغاء قيد المراجعة', cancelled: 'ملغي' };
+    for (const id of new Set(L.map((b) => b.salonId))) { try { SD[id] = (await F.getDoc(F.doc(db, 'salons', id))).data() || {}; nm[id] = SD[id].name || id; } catch (e) { nm[id] = id; } }
     await Promise.all(L.filter((b) => b.status === 'confirmed').map(async (b) => { try { codes[b.id] = (await F.getDoc(F.doc(db, 'bookings', b.id, 'private', 'code'))).data()?.code; } catch (e) {} }));
     const when = (t) => { const d = new Date(t + 3 * 36e5); return d.toISOString().slice(0, 10) + ' · ' + String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0'); };
     app.innerHTML = '<h2 style="font-size:20px;margin-top:8px">حجوزاتي</h2><div class="m">تظهر هنا الحجوزات التي تمت من هذا المتصفح فقط.</div>' + (L.length ? L.map((b) => {
       const can = b.status === 'confirmed' && b.source === 'online' && b.start - Date.now() >= cut * 36e5;
+      const rs = can && !b.rescheduleCount && SD[b.salonId]?.hours;
       return `<div class="row"><div class="s"><b>${esc(nm[b.salonId])}</b><span class="m">${SA[b.status] || esc(b.status)}</span></div><div class="m">${when(b.start)} · ${esc((b.services || []).map((x) => x.name).join('، '))}</div>
       ${codes[b.id] ? `<div class="m">رمز الإكمال: <b dir="ltr">${esc(codes[b.id])}</b></div>` : ''}
+      ${rs ? `<button data-rs="${esc(b.id)}" style="background:transparent;color:var(--ac);border:1px solid var(--ac)">تغيير الموعد (مرة واحدة)</button><div data-rp="${esc(b.id)}"></div>` : b.rescheduleCount && b.status === 'confirmed' ? '<div class="m">تم تعديل موعد هذا الحجز مرة، ولا يمكن تعديله ثانية.</div>' : ''}
       ${can ? `<button data-id="${esc(b.id)}" style="background:transparent;color:var(--ac);border:1px solid var(--ac)">طلب إلغاء</button>` : b.status === 'confirmed' && b.source === 'online' ? `<div class="m">انتهت مهلة الإلغاء (${cut} ساعة قبل الموعد)، تواصلي مع الصالون.</div>` : ''}</div>`;
     }).join('') : '<div class="row">لا توجد حجوزات.</div>') + '<a class="row" href="./">الصالونات</a><div id="mg" class="m" role="status"></div>';
     app.querySelectorAll('button[data-id]').forEach((b) => b.onclick = async () => {
       const r = (prompt('سبب الإلغاء (إلزامي):') || '').trim(); if (!r) return; b.disabled = true;
       try { await F.updateDoc(F.doc(db, 'bookings', b.dataset.id), { status: 'cancel_requested', cancelReason: r, cancelRequestedAt: Date.now() }); location.reload(); }
       catch (e) { b.disabled = false; document.getElementById('mg').textContent = 'تعذر إرسال الطلب (قد تكون المهلة انتهت): ' + (e.code || ''); }
+    });
+    app.querySelectorAll('button[data-rs]').forEach((btn) => btn.onclick = () => {
+      const b = L.find((x) => x.id === btn.dataset.rs), box = app.querySelector(`[data-rp="${b.id}"]`), H = SD[b.salonId].hours, AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'], days = [];
+      for (let k = 0; k < 14; k++) { const d = new Date(Date.now() + 3 * 36e5 + k * 864e5), h = H[d.getUTCDay()]; if (h && !h.off) days.push(d); }
+      box.innerHTML = `<div class="chips" style="margin-top:8px">${days.map((d) => `<button class="chip" aria-pressed="false" data-d="${d.toISOString().slice(0, 10)}">${AR[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth() + 1}</button>`).join('')}</div><div data-tm></div>`;
+      const tm = box.querySelector('[data-tm]');
+      box.querySelectorAll('[data-d]').forEach((c) => c.onclick = async () => {
+        box.querySelectorAll('[data-d]').forEach((x) => x.setAttribute('aria-pressed', x === c)); const day = c.dataset.d, h = H[new Date(day + 'T00:00:00Z').getUTCDay()]; tm.innerHTML = '<div class="m">جارٍ حساب الأوقات...</div>';
+        try {
+          const cells = { ...((await F.getDoc(F.doc(db, 'schedules', b.staffId + '_' + day))).data()?.cells || {}) }; for (const k of Object.keys(cells)) if (cells[k] === b.id) delete cells[k];   // خلايا حجزها نفسه ليست مشغولة عليها
+          const sl = slotsFor({ open: h.open, close: h.close, durationMin: b.durationMin, cellsByStaff: { [b.staffId]: cells }, date: day, now: Date.now() });
+          tm.innerHTML = sl.length ? `<div class="chips" style="margin-top:8px">${sl.map((x) => `<button class="chip" data-m="${x.m}">${fmt(x.m)}</button>`).join('')}</div>` : '<div class="m">لا توجد أوقات متاحة بهذا اليوم.</div>';
+          tm.querySelectorAll('[data-m]').forEach((t) => t.onclick = async () => {
+            if (!confirm(`تأكيد نقل الموعد إلى ${day} الساعة ${fmt(Number(t.dataset.m))}؟ لا يمكن تعديله بعدها.`)) return; t.disabled = true;
+            try { await rescheduleBooking({ db, fs: { doc: F.doc, runTransaction: F.runTransaction, deleteField: F.deleteField }, user: auth.currentUser, bookingId: b.id, date: day, startMin: Number(t.dataset.m), cutoffHours: cut }); location.reload(); }
+            catch (e) { t.disabled = false; document.getElementById('mg').textContent = { SLOT_TAKEN: 'هذا الوقت انحجز قبل لحظات. اختاري وقتًا آخر.', TOO_LATE: 'انتهت مهلة التعديل، تواصلي مع الصالون.', ALREADY_RESCHEDULED: 'تم تعديل هذا الحجز سابقًا.' }[e.message] || ('تعذر تعديل الموعد: ' + (e.code || e.message)); }
+          });
+        } catch (e) { tm.innerHTML = '<div class="m bad">تعذر تحميل الأوقات.</div>'; }
+      });
     });
   } else if (!slug) {
     const q = await F.getDocs(F.query(F.collection(db, 'salons'), F.where('status', '==', 'active')));
