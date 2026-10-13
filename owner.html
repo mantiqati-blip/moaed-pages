@@ -24,7 +24,7 @@ label{display:block;font-weight:600;margin:12px 0 4px}input,select{font:inherit;
 import { configured, auth, db } from './js/fb.js';
 import { summarize, money } from './js/finance.js';
 import { bookSlot } from './js/booking.js';
-import { cellKeys } from './js/cells.js';
+import { cellKeys, toEpoch } from './js/cells.js';
 import { slotsFor, fmt } from './js/avail.js';
 import { toCSV, bookingColumns, download, dateOf } from './js/export.js';
 const $ = (i) => document.getElementById(i), app = $('app');
@@ -107,6 +107,8 @@ async function bookings() {
         if (now >= b.start) a.push(`${b.source === 'online' ? '<input inputmode="numeric" maxlength="4" size="4" dir="ltr" placeholder="الرمز" style="width:90px" aria-label="رمز الزبونة">' : ''}<button class="p" data-a="done" data-id="${esc(b.id)}" data-o="${b.source === 'online' ? 1 : 0}">تمت الخدمة</button>`);
         if (now >= b.end) a.push(`<button data-a="ns" data-id="${esc(b.id)}">لم تحضر</button>`);
         if (b.source !== 'online') a.push(`<button data-a="cx" data-id="${esc(b.id)}">إلغاء</button>`);
+        else if (b.start > now && !b.moveProposal) a.push(`<button data-a="mv" data-id="${esc(b.id)}">اقتراح تغيير الموعد</button>`);
+        else if (b.moveProposal) a.push(`<div class="m" style="width:100%">اقتراح النقل بانتظار ردّ الزبونة (${dk(b.moveProposal.start)} ${hm(b.moveProposal.start)}).</div>`);
       }
       if (b.status === 'cancel_requested') a.push(`<div class="m" style="width:100%">سبب الزبونة: ${esc(b.cancelReason)}</div><button data-a="ok" data-id="${esc(b.id)}">موافقة (تُحال للإدارة)</button><button data-a="no" data-id="${esc(b.id)}">رفض الإلغاء</button>`);
       return `<div class="row"><div class="s"><b>${hm(b.start)} — ${esc(b.customerName || (b.source === 'blocked' ? 'وقت مغلق' : '—'))}</b><span class="tag ${b.status === 'confirmed' ? '' : 'off'}">${ST[b.status] || esc(b.status)}</span></div>
@@ -129,6 +131,35 @@ async function bookings() {
       } else await F.updateDoc(ref, upd);
       await F.addDoc(F.collection(db, 'bookings', id, 'events'), { by: u.uid, action: a, at: Date.now() }).catch(() => {}); bookings();
     } catch (e) { b.disabled = false; say(a === 'done' ? 'تعذر الإكمال: الرمز غير صحيح أو لم يحن موعد الحجز بعد.' : 'تعذر التنفيذ: ' + e.code, 'bad'); }
+  });
+  v.querySelectorAll('[data-a=mv]').forEach((btn) => btn.onclick = async () => {   // اقتراح نقل: يظهر للزبونة فتوافق أو ترفض
+    const b = all.find((x) => x.id === btn.dataset.id), row = btn.closest('.row'); let box = row.querySelector('[data-mp]'); if (box) { box.remove(); return; }
+    box = document.createElement('div'); box.dataset.mp = '1'; row.appendChild(box); box.innerHTML = '<div class="m">جارٍ التحميل...</div>';
+    let stf; try { stf = (await F.getDocs(F.collection(db, 'salons', sid, 'staff'))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.status === 'active'); } catch (e) { box.innerHTML = '<div class="bad">تعذر التحميل.</div>'; return; }
+    const H = salon.hours, AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'], days = [];
+    if (!H || !stf.length) { box.innerHTML = '<div class="m">حدّدي الدوام وموظفة معتمدة أولًا.</div>'; return; }
+    for (let k = 0; k < 14; k++) { const d = new Date(Date.now() + 3 * 36e5 + k * 864e5), h = H[d.getUTCDay()]; if (h && !h.off) days.push(d); }
+    box.innerHTML = `<label>الموظفة</label><select data-sf>${stf.map((x) => `<option value="${esc(x.id)}" ${x.id === b.staffId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
+      <div class="s" style="justify-content:flex-start;gap:6px;margin-top:8px;flex-wrap:wrap">${days.map((d) => `<button type="button" data-d="${d.toISOString().slice(0, 10)}">${AR[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth() + 1}</button>`).join('')}</div><div data-tm></div>
+      <label>سبب النقل (إلزامي، يظهر للزبونة)</label><input data-rs maxlength="200"><div class="m" data-ms role="status"></div>`;
+    const ms = (t, c = '') => { const e = box.querySelector('[data-ms]'); e.className = 'm ' + c; e.textContent = t; }; let day = null;
+    async function loadSlots() {
+      const tm = box.querySelector('[data-tm]'), sf = box.querySelector('[data-sf]').value, h = H[new Date(day + 'T00:00:00Z').getUTCDay()]; tm.innerHTML = '<div class="m">جارٍ حساب الأوقات...</div>';
+      try {
+        const cells = { ...((await F.getDoc(F.doc(db, 'schedules', sf + '_' + day))).data()?.cells || {}) }; for (const k of Object.keys(cells)) if (cells[k] === b.id) delete cells[k];
+        const sl = slotsFor({ open: h.open, close: h.close, durationMin: b.durationMin, cellsByStaff: { [sf]: cells }, date: day, now: Date.now() });
+        tm.innerHTML = sl.length ? `<div class="s" style="justify-content:flex-start;gap:6px;margin-top:8px;flex-wrap:wrap">${sl.map((x) => `<button type="button" data-m="${x.m}">${fmt(x.m)}</button>`).join('')}</div>` : '<div class="m">لا توجد أوقات متاحة بهذا اليوم.</div>';
+        tm.querySelectorAll('[data-m]').forEach((t) => t.onclick = async () => {
+          const reason = box.querySelector('[data-rs]').value.trim(); if (!reason) return ms('اكتبي سبب النقل أولًا.', 'bad');
+          const start = toEpoch(day, Number(t.dataset.m)); if (!confirm(`إرسال اقتراح نقل إلى ${day} الساعة ${fmt(Number(t.dataset.m))}؟`)) return; t.disabled = true;
+          try { await F.updateDoc(F.doc(db, 'bookings', b.id), { moveProposal: { start, end: start + b.durationMin * 60000, staffId: sf, reason, by: u.uid, at: Date.now() } });
+            await F.addDoc(F.collection(db, 'bookings', b.id, 'events'), { by: u.uid, action: 'propose_move', from: b.start, to: start, reason, at: Date.now() }).catch(() => {}); bookings(); }
+          catch (e) { t.disabled = false; ms('تعذر الإرسال: ' + (e.code || e.message), 'bad'); }
+        });
+      } catch (e) { tm.innerHTML = '<div class="bad">تعذر تحميل الأوقات.</div>'; }
+    }
+    box.querySelectorAll('[data-d]').forEach((c) => c.onclick = () => { day = c.dataset.d; box.querySelectorAll('[data-d]').forEach((x) => x.className = x === c ? 'on' : ''); loadSlots(); });
+    box.querySelector('[data-sf]').onchange = () => day && loadSlots();
   });
 }
 async function accounts() {
