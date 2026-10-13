@@ -1,0 +1,204 @@
+// ===== نسخة مشدّدة: لا تُنشر إلا بعد نشر الدوال الأربع (createBooking وclosePeriod وrescheduleBooking وacceptMove) وتفعيل useServerBooking وuseServerClose وuseServerReschedule وuseServerMove وتجربتها =====
+rules_version = '2';
+// وضع Spark (بدون Cloud Functions): القواعد هي الحماية الوحيدة. لم تُختبر على محاكي Firestore بعد.
+// التعديلات عن النسخة السابقة موسومة بـ [جديد]. هذه النسخة: رسوم خاصة بكل صالون + بنود اقتراح نقل الموعد من الصالون
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function role() { return signedIn() && exists(userDoc()) ? get(userDoc()).data.role : 'customer'; }
+    function active() { return signedIn() && exists(userDoc()) && get(userDoc()).data.status == 'active'; }
+    function isAdmin() { return role() == 'admin' && active(); }
+    function inSalon(id) { return (role() == 'owner' || role() == 'staff') && active() && get(userDoc()).data.salonId == id; }
+    function isOwner(id) { return role() == 'owner' && active() && get(userDoc()).data.salonId == id; }
+    function cfg() { return get(/databases/$(database)/documents/platform/settings).data; }
+    function nowMs() { return request.time.toMillis(); }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();                       // الأدمن وحده ينشئ حسابات صاحبة الصالون والموظفة
+    }
+    match /platform/{d} { allow read: if true; allow write: if isAdmin(); }
+    match /governorates/{d} { allow read: if true; allow write: if isAdmin(); }
+    match /areas/{d} { allow read: if true; allow write: if isAdmin(); }
+    match /audit/{d} { allow read: if isAdmin(); allow create: if isAdmin() && request.resource.data.by == request.auth.uid; allow update, delete: if false; }   // [جديد] سجل التدقيق: الأدمن وحده يكتب (كان أي حساب مجهول يقدر يملأه)
+
+    // [جديد] طلبات الانضمام: مكالمتان "لم تتم" عند الإنشاء، والموافقة لا تمر إلا بعد اكتمال المكالمتين
+    match /applications/{id} {
+      allow create: if signedIn() && request.resource.data.status == 'pending' && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.acceptedTerms == true
+                    && request.resource.data.calls == {'voice': {'status': 'none'}, 'video': {'status': 'none'}}
+                    && request.resource.data.ownerPhone.matches('^07[3-9][0-9]{8}$') && request.resource.data.whatsapp.matches('^07[3-9][0-9]{8}$')
+                    && request.resource.data.ownerName.size() <= 80 && request.resource.data.salonName.size() <= 80
+                    && request.resource.data.address.size() <= 500 && request.resource.data.servicesText.size() <= 2000;
+      allow read: if isAdmin() || (signedIn() && resource.data.createdBy == request.auth.uid);
+      allow update: if isAdmin() && (request.resource.data.status != 'approved'
+                    || (request.resource.data.calls.voice.status == 'done' && request.resource.data.calls.video.status == 'done'));
+      allow delete: if false;
+    }
+
+    // [جديد] القائمة العامة للصالونات (اسم ومنطقة فقط، بدون هاتف): للصفحة الرئيسية الموحدة. الأدمن وحده يكتبها
+    match /publicSalons/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin() && request.resource.data.keys().hasOnly(['name', 'slug', 'governorateId', 'areaId', 'status']);
+      allow delete: if isAdmin();
+    }
+
+    // [جديد] بيانات الصالون الخاصة (هاتف صاحبة الصالون): للأدمن وصاحبة الصالون فقط، والأدمن وحده يكتب
+    match /salonPrivate/{sid} {
+      allow read: if isAdmin() || isOwner(sid);
+      allow create, update: if isAdmin() && request.resource.data.keys().hasOnly(['ownerPhone']) && request.resource.data.ownerPhone.matches('^07[3-9][0-9]{8}$');
+      allow delete: if isAdmin();
+    }
+
+    match /salons/{sid} {
+      allow get: if resource.data.status == 'active' || isAdmin() || inSalon(sid);
+      allow list: if isAdmin();                       // [جديد] لا قائمة عامة لجدول الصالونات (فيه ownerPhone)؛ الزبونات تقرأ publicSalons
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isOwner(sid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'ownerUid', 'slug', 'ownerPhone', 'customerFee', 'salonCut']));   // [جديد] الرسم والاستقطاع للأدمن فقط
+      // [جديد] التسديدات: يقرؤها الأدمن وصاحبة الصالون فقط (الموظفة لا ترى الحسابات)، ويسجلها الأدمن، ولا تُعدَّل ولا تُحذف
+      match /payments/{pid} {
+        allow read: if isAdmin() || isOwner(sid);
+        allow create: if isAdmin() && request.resource.data.keys().hasOnly(['amount', 'by', 'at'])
+                      && request.resource.data.amount is int && request.resource.data.amount > 0 && request.resource.data.by == request.auth.uid;
+        allow update, delete: if false;
+      }
+      // [جديد] الفترات المؤرشفة (تصفير الحساب): الأدمن فقط ينشئ، والمتبقي صفر، والمستحق = المسدد، ولا تُعدَّل ولا تُحذف
+      match /periods/{pid} {
+        allow read: if isAdmin() || isOwner(sid);
+        allow create: if false;   // [مشدّد] التصفير بدالة closePeriod فقط
+        allow update, delete: if false;
+        // [جديد] اعتراض الصالون على الكشف: اعتراض واحد لكل فترة (المعرّف main) خلال ٣ أيام من التصفير. القرار للأدمن فقط.
+        match /objections/{oid} {
+          allow read: if isAdmin() || isOwner(sid);
+          allow create: if isOwner(sid) && oid == 'main'
+                        && request.resource.data.keys().hasOnly(['reason', 'by', 'at', 'status'])
+                        && request.resource.data.status == 'open' && request.resource.data.by == request.auth.uid
+                        && request.resource.data.reason is string && request.resource.data.reason.size() >= 5 && request.resource.data.reason.size() <= 500
+                        && request.resource.data.at is int && request.resource.data.at <= nowMs() + 60000 && request.resource.data.at >= nowMs() - 600000
+                        && nowMs() <= get(/databases/$(database)/documents/salons/$(sid)/periods/$(pid)).data.closedAt + 259200000;
+          allow update: if isAdmin() && resource.data.status == 'open'
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'decision', 'decidedAt', 'decidedBy'])
+                        && request.resource.data.status in ['accepted', 'rejected']
+                        && request.resource.data.decision is string && request.resource.data.decision.size() >= 3 && request.resource.data.decision.size() <= 500
+                        && request.resource.data.decidedBy == request.auth.uid;
+          allow delete: if false;
+        }
+      }
+      match /services/{id} { allow read: if true; allow write: if isAdmin() || isOwner(sid); }
+      match /staff/{id} {
+        allow read: if true;
+        allow create: if isOwner(sid) && request.resource.data.status == 'pending';
+        allow update: if isAdmin() || (isOwner(sid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'uid']));
+        allow delete: if isAdmin();
+      }
+    }
+
+    // وثيقة اليوم لكل موظفة: الزبونة تضيف خلايا، والصالون والأدمن يحررون.
+    // [جديد] تعديل موعد الزبونة: يُسمح لها بحذف خلايا حجزها هي فقط، وتثبّت ذلك بحقل moving = رقم الحجز
+    match /schedules/{id} {
+      function cdiff() { return request.resource.data.cells.diff(resource.data.cells); }
+      function mvRef() { return /databases/$(database)/documents/bookings/$(request.resource.data.moving); }
+      function firstOldCell() { return string(int((get(mvRef()).data.start + 10800000) % 86400000 / 900000)); }   // رقم أول خلية من الموعد القديم (توقيت بغداد)
+      // [جديد] قبول الزبونة لنقل اقترحه الصالون: يُحذف الاقتراح ويتغير start بنفس العملية، بدون استهلاك تعديلها الوحيد
+      function acceptedMove() {
+        return 'moveProposal' in get(mvRef()).data && !('moveProposal' in getAfter(mvRef()).data)
+          && getAfter(mvRef()).data.start == get(mvRef()).data.moveProposal.start;
+      }
+      function ownReschedule() {
+        return getAfter(mvRef()).data.rescheduleCount == 1 && !('rescheduleCount' in get(mvRef()).data);   // أول تعديل فقط، ويتم بنفس العملية
+      }
+      function customerMove() {
+        return request.resource.data.moving is string
+          && getAfter(mvRef()).data.customerUid == request.auth.uid
+          && (ownReschedule() || acceptedMove())
+          && cdiff().changedKeys().size() == 0                                                              // لا تبديل لقيم خلايا غيرها
+          && cdiff().removedKeys().size() <= int(get(mvRef()).data.durationMin / 15)                        // [جديد] ≤ بدل == لأن النقل المتداخل (١٠:٠٠ إلى ١٠:١٥) يحذف أقل
+          && resource.data.cells[firstOldCell()] == request.resource.data.moving;                            // أول خلية قديمة فعلًا لحجزها
+      }
+      allow read: if signedIn();
+      // [مشدّد] الزبونة لا تكتب الجدول أبدًا: الحجز والتعديل وقبول النقل تتم بدوال السيرفر. الصالون والأدمن فقط.
+      allow create: if signedIn() && (isAdmin() || role() == 'owner' || role() == 'staff') && request.resource.data.keys().hasOnly(['cells']);
+      allow update: if signedIn() && request.resource.data.keys().hasOnly(['cells', 'moving']) && (isAdmin() || role() == 'owner' || role() == 'staff');
+      allow delete: if false;
+    }
+
+    match /bookings/{bid} {
+      function nb() { return request.resource.data; }
+      function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+      function keysOk() { return nb().keys().hasOnly(['customerUid', 'customerName', 'customerPhone', 'salonId', 'staffId', 'services', 'start', 'end',
+        'durationMin', 'servicesTotal', 'customerFee', 'salonCut', 'couponId', 'discount', 'status', 'source', 'src', 'createdAt']); }
+      // [جديد] الرسم الفعلي: قيمة الصالون إن كانت عددًا صحيحًا وإلا الافتراضي من platform/settings
+      function sdoc(id) { return get(/databases/$(database)/documents/salons/$(id)).data; }
+      function feeOf(id) { return sdoc(id).get('customerFee', null) is int ? sdoc(id).get('customerFee', null) : cfg().customerFee; }
+      function cutOf(id) { return sdoc(id).get('salonCut', null) is int ? sdoc(id).get('salonCut', null) : cfg().salonCut; }
+      function manualFree() { return cfg().get('manualFeeMode', 'same') == 'none'; }
+      function salonActive() { return get(/databases/$(database)/documents/salons/$(nb().salonId)).data.status == 'active'; }
+      function timesOk() { return nb().durationMin > 0 && nb().end == nb().start + nb().durationMin * 60000 && nb().start > nowMs(); }
+      function phoneVerified() { return cfg().get('requirePhoneOtp', false) != true || (nb().customerPhone is string && request.auth.token.get('phone_number', '').replace('+964', '0') == nb().customerPhone); }
+      function onlineCreate() {
+        return nb().source == 'online' && nb().customerUid == request.auth.uid && nb().status == 'confirmed' && nb().discount == 0
+          && nb().customerFee == feeOf(nb().salonId) && nb().salonCut == cutOf(nb().salonId) && salonActive()   // [جديد] من قيمة الصالون أو الإعدادات فقط
+          && phoneVerified();   // [جديد] عند تفعيل requirePhoneOtp: هاتف الحجز = هاتف الحساب الموثّق برمز SMS
+      }
+      function manualCreate() {
+        return nb().source in ['manual', 'blocked'] && inSalon(nb().salonId) && nb().status == 'confirmed'
+          && (nb().source == 'blocked' ? (nb().customerFee == 0 && nb().salonCut == 0)
+              : (nb().customerFee == (manualFree() ? 0 : feeOf(nb().salonId)) && nb().salonCut == (manualFree() ? 0 : cutOf(nb().salonId))));
+      }
+      function cutoffOk() { return resource.data.start - nowMs() >= cfg().cancelCutoffHours * 3600000; }
+      function codeOf() { return get(/databases/$(database)/documents/bookings/$(bid)/private/code).data.code; }
+
+      allow read: if signedIn() && (resource.data.customerUid == request.auth.uid || isAdmin() || inSalon(resource.data.salonId));
+      allow create: if signedIn() && keysOk() && timesOk() && manualCreate();   // [مشدّد] الحجز عبر المنصة يُنشأ بدالة createBooking فقط
+      allow delete: if false;
+      allow update: if signedIn() && (
+        // ١) الزبونة تطلب الإلغاء: قبل المهلة وبسبب
+        (resource.data.customerUid == request.auth.uid && resource.data.source == 'online' && resource.data.status == 'confirmed'
+          && nb().status == 'cancel_requested' && changed().hasOnly(['status', 'cancelReason', 'cancelRequestedAt']) && cutoffOk() && nb().cancelReason.size() > 0)
+        // ٢) صاحبة الصالون: توافق (تحيل للأدمن) أو ترفض (يعود مؤكدًا)، بسبب
+        || (isOwner(resource.data.salonId) && resource.data.status == 'cancel_requested' && nb().status in ['pending_admin', 'confirmed']
+          && changed().hasOnly(['status', 'ownerReason']) && nb().ownerReason.size() > 0)
+        // ٣) الأدمن: قرار نهائي بسبب
+        || (isAdmin() && resource.data.status == 'pending_admin' && nb().status in ['cancelled', 'confirmed']
+          && changed().hasOnly(['status', 'adminReason', 'finalDecisionBy']) && nb().adminReason.size() > 0)
+        // ٤) إكمال الخدمة: الحجز عبر المنصة بالرمز الصحيح (القاعدة تقارنه بالوثيقة الخاصة)
+        || (inSalon(resource.data.salonId) && resource.data.status == 'confirmed' && nb().status == 'completed' && nowMs() >= resource.data.start
+          && changed().hasOnly(['status', 'completedAt', 'codeEntered']) && nb().completedAt is int && nb().completedAt <= nowMs() + 300000 && nb().completedAt >= nowMs() - 3600000   // [جديد] وقت الإكمال قريب من ساعة السيرفر، لأنه يحدد فترة الحساب
+          && (resource.data.source != 'online' || nb().codeEntered == codeOf()))
+        // ٥) لم تحضر: بعد انتهاء الموعد
+        || (inSalon(resource.data.salonId) && resource.data.status == 'confirmed' && nb().status == 'no_show' && nowMs() >= resource.data.end
+          && changed().hasOnly(['status', 'noShowAt']) && nb().noShowAt is int && nb().noShowAt <= nowMs() + 300000 && nb().noShowAt >= nowMs() - 3600000)
+        // ٦) إلغاء مباشر: اليدوي والمغلق من الصالون، والاستثناء داخل المهلة من صاحبة الصالون
+        || (inSalon(resource.data.salonId) && resource.data.status == 'confirmed' && nb().status == 'cancelled'
+          && changed().hasOnly(['status', 'directReason']) && nb().directReason.size() > 0
+          && (resource.data.source != 'online' || (isOwner(resource.data.salonId) && !cutoffOk())))
+        // ٨) [جديد] صاحبة الصالون تقترح نقلًا: حجز مؤكد عبر المنصة، سبب إلزامي، اقتراح واحد قائم، لا يتغير غيره
+        || (isOwner(resource.data.salonId) && resource.data.source == 'online' && resource.data.status == 'confirmed'
+          && !('moveProposal' in resource.data) && changed().hasOnly(['moveProposal'])
+          && nb().moveProposal.keys().hasOnly(['start', 'end', 'staffId', 'reason', 'by', 'at'])
+          && nb().moveProposal.reason.size() > 0 && nb().moveProposal.by == request.auth.uid
+          && nb().moveProposal.start > nowMs() && nb().moveProposal.end == nb().moveProposal.start + resource.data.durationMin * 60000)
+        // [مشدّد] تعديل الموعد (٧) وقبول النقل (٩) صارا بدالتي rescheduleBooking وacceptMove، فلا كتابة من العميل لهما
+        // ١٠) [جديد] الزبونة ترفض: يتحول إلى طلب إلغاء بسبب ويُحذف الاقتراح (يكمل المسار الثلاثي)
+        || (resource.data.customerUid == request.auth.uid && resource.data.status == 'confirmed' && 'moveProposal' in resource.data
+          && nb().status == 'cancel_requested' && changed().hasOnly(['status', 'cancelReason', 'cancelRequestedAt', 'moveProposal'])
+          && !('moveProposal' in nb()) && nb().cancelReason.size() > 0)
+      );
+
+      match /events/{eid} {
+        allow read: if isAdmin() || inSalon(get(/databases/$(database)/documents/bookings/$(bid)).data.salonId);
+        allow create: if signedIn() && request.resource.data.by == request.auth.uid && (isAdmin() || inSalon(get(/databases/$(database)/documents/bookings/$(bid)).data.salonId) || get(/databases/$(database)/documents/bookings/$(bid)).data.customerUid == request.auth.uid); allow update, delete: if false;   // [جديد] أحداث الحجز: أطرافه فقط
+      }
+      // رمز الإكمال: تقرأه الزبونة والأدمن فقط. الموظفة لا تقرؤه، لكن القاعدة تقارن بها ما تدخله
+      match /private/{pid} {
+        allow read: if signedIn() && (get(/databases/$(database)/documents/bookings/$(bid)).data.customerUid == request.auth.uid || isAdmin());
+        allow create: if signedIn() && getAfter(/databases/$(database)/documents/bookings/$(bid)).data.customerUid == request.auth.uid
+                      && getAfter(/databases/$(database)/documents/bookings/$(bid)).data.source != 'online'   // [مشدّد] رمز الحجز عبر المنصة يولّده السيرفر فقط (اليدوي من الموظفة يبقى)
+                      && request.resource.data.code.matches('^[0-9]{4}$');
+        allow update, delete: if false;
+      }
+    }
+    match /{p=**} { allow read, write: if false; }
+  }
+}
