@@ -24,6 +24,7 @@ label{display:block;font-weight:600;margin:12px 0 4px}input,select{font:inherit;
 import { configured, auth, db } from './js/fb.js';
 import { summarize, money } from './js/finance.js';
 import { bookSlot } from './js/booking.js';
+import { cellKeys } from './js/cells.js';
 import { slotsFor, fmt } from './js/avail.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -118,8 +119,14 @@ async function bookings() {
     else if (a === 'ns') { if (!confirm('تسجيل أن الزبونة لم تحضر؟')) return; upd = { status: 'no_show', noShowAt: Date.now() }; }
     else { const r = (prompt(a === 'cx' ? 'سبب الإلغاء؟' : a === 'ok' ? 'سبب الموافقة؟' : 'سبب رفض الإلغاء؟') || '').trim(); if (!r) return; upd = a === 'cx' ? { status: 'cancelled', directReason: r } : { status: a === 'ok' ? 'pending_admin' : 'confirmed', ownerReason: r }; }
     b.disabled = true;
-    try { await F.updateDoc(ref, upd); await F.addDoc(F.collection(db, 'bookings', id, 'events'), { by: u.uid, action: a, at: Date.now() }).catch(() => {}); bookings(); }
-    catch (e) { b.disabled = false; say(a === 'done' ? 'تعذر الإكمال: الرمز غير صحيح أو لم يحن موعد الحجز بعد.' : 'تعذر التنفيذ: ' + e.code, 'bad'); }
+    try {
+      if (a === 'cx') {   // إلغاء مباشر: يحرّر خلايا الوقت من جدول الموظفة بنفس العملية
+        const bk = all.find((x) => x.id === id), d = new Date(bk.start + 3 * 36e5), del = {};
+        cellKeys(d.getUTCHours() * 60 + d.getUTCMinutes(), bk.durationMin).forEach((k) => del['cells.' + k] = F.deleteField());
+        const bt = F.writeBatch(db); bt.update(ref, upd); bt.update(F.doc(db, 'schedules', bk.staffId + '_' + d.toISOString().slice(0, 10)), del); await bt.commit();
+      } else await F.updateDoc(ref, upd);
+      await F.addDoc(F.collection(db, 'bookings', id, 'events'), { by: u.uid, action: a, at: Date.now() }).catch(() => {}); bookings();
+    } catch (e) { b.disabled = false; say(a === 'done' ? 'تعذر الإكمال: الرمز غير صحيح أو لم يحن موعد الحجز بعد.' : 'تعذر التنفيذ: ' + e.code, 'bad'); }
   });
 }
 async function accounts() {
