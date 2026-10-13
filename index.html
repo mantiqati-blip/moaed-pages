@@ -11,10 +11,15 @@ main{max-width:560px;margin:0 auto;padding:16px}.row{background:var(--card);bord
 a.row{display:block;color:inherit;text-decoration:none}a.row:focus-visible,input:focus-visible,button:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
 label.row{cursor:pointer}input[type=checkbox]{width:22px;height:22px;accent-color:var(--ac)}
 button{font:inherit;font-weight:700;width:100%;background:var(--ac);color:#fff;border:0;border-radius:14px;padding:14px;margin-top:10px}button:disabled{opacity:.45}
+.chips{display:flex;flex-wrap:wrap;gap:8px}.chip{width:auto;margin:0;padding:10px 16px;background:var(--card);color:var(--ink);border:1px solid var(--line);font-weight:600}.chip[aria-pressed=true]{background:var(--ac);color:#fff;border-color:var(--ac)}
+select,input[type=text],input[type=tel]{font:inherit;width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);margin:4px 0 10px}.bad{color:#c0392b}.ok{color:#1a7f4b}
+.code{font-size:34px;font-weight:700;letter-spacing:6px;text-align:center;color:var(--ac)}
 .h{display:flex;justify-content:space-between;padding:4px 0}.t{font-weight:700;font-size:18px}
 </style></head><body><header><b>موعد أنوثة</b></header><main id="app"><div class="row">جارٍ التحميل...</div></main>
 <script type="module">
 import { configured, auth, db } from './js/fb.js';
+import { bookSlot } from './js/booking.js';
+import { slotsFor, fmt } from './js/avail.js';
 const app = document.getElementById('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n) => Number(n).toLocaleString('en') + ' د.ع';
@@ -34,19 +39,64 @@ try {
     const nm = async (c, id) => { try { return (await F.getDoc(F.doc(db, c, id))).data()?.name || ''; } catch (e) { return ''; } };
     const [gv, ar, cfg, sv, st] = await Promise.all([nm('governorates', S.governorateId), nm('areas', S.areaId), F.getDoc(F.doc(db, 'platform', 'settings')),
       F.getDocs(F.collection(db, 'salons', slug, 'services')), F.getDocs(F.collection(db, 'salons', slug, 'staff'))]);
-    const fee = Number(cfg.data()?.customerFee) || 0, svc = sv.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.active), staff = st.docs.map((d) => d.data()).filter((x) => x.status === 'active');
+    const fee = Number(cfg.data()?.customerFee) || 0, svc = sv.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.active), staff = st.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.status === 'active');
     const DAYS = [[6, 'السبت'], [0, 'الأحد'], [1, 'الاثنين'], [2, 'الثلاثاء'], [3, 'الأربعاء'], [4, 'الخميس'], [5, 'الجمعة']], H = S.hours;
     document.title = S.name + ' — موعد أنوثة';
     app.innerHTML = `<h2 style="font-size:22px;margin-top:8px">${esc(S.name)}</h2><div class="m">${esc([gv, ar].filter(Boolean).join(' — '))}</div>
     <h2>الخدمات</h2>` + (svc.length ? svc.map((x, i) => `<label class="row s"><span><b>${esc(x.name)}</b><div class="m">${x.durationMin} دقيقة · ${money(x.price)}</div></span><input type="checkbox" data-i="${i}"></label>`).join('') : '<div class="row m">لم تضف الصالون خدماتها بعد.</div>') +
     `<div class="row"><div class="h"><span>مجموع الخدمات</span><span id="a">${money(0)}</span></div><div class="h"><span>رسم الخدمة</span><span>${money(fee)}</span></div><div class="h t"><span>الإجمالي</span><span id="z">${money(0)}</span></div></div>
-    <button disabled>الحجز سيُفعَّل في التحديث القادم</button>
+    <div id="bk"></div>
     <h2>ساعات الدوام</h2><div class="row">` + (H ? DAYS.map(([k, n]) => `<div class="h"><span>${n}</span><span>${H[k]?.off ? 'عطلة' : esc(H[k]?.open) + ' – ' + esc(H[k]?.close)}</span></div>`).join('') : '<span class="m">لم تُحدد بعد.</span>') + '</div>' +
     `<h2>الموظفات</h2><div class="row">${staff.length ? staff.map((x) => `<div>${esc(x.name)}</div>`).join('') : '<span class="m">لا توجد موظفات معتمدات بعد.</span>'}</div>`;
     app.querySelectorAll('input[type=checkbox]').forEach((c) => c.onchange = () => {
       const sum = [...app.querySelectorAll('input:checked')].reduce((n, e) => n + svc[e.dataset.i].price, 0);
-      document.getElementById('a').textContent = money(sum); document.getElementById('z').textContent = money(sum ? sum + fee : 0);
+      document.getElementById('a').textContent = money(sum); document.getElementById('z').textContent = money(sum ? sum + fee : 0); bk();
     });
+    const $ = (i) => document.getElementById(i), SRC = ['qr', 'tiktok', 'whatsapp', 'facebook', 'instagram'], p = new URLSearchParams(location.search).get('src');
+    const sets = cfg.data(), now3 = () => new Date(Date.now() + 3 * 36e5), ds = (d) => d.toISOString().slice(0, 10);
+    const chosen = () => [...app.querySelectorAll('input:checked')].map((e) => svc[e.dataset.i]);
+    let day = null, pick = null, slots = [];
+    function bk() {
+      const L = chosen(), box = $('bk'); pick = null;
+      if (!L.length) { box.innerHTML = ''; return; }
+      if (!staff.length) { box.innerHTML = '<div class="row m">لا توجد موظفات معتمدات حاليًا، فلا يمكن الحجز.</div>'; return; }
+      if (!H) { box.innerHTML = '<div class="row m">لم تُحدد ساعات الدوام بعد.</div>'; return; }
+      const days = []; for (let i = 0; i < 14; i++) { const d = new Date(now3().getTime() + i * 864e5); if (!H[d.getUTCDay()]?.off && H[d.getUTCDay()]) days.push(d); }
+      const AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+      box.innerHTML = `<h2>الموعد</h2><div class="chips" id="dy">${days.map((d) => `<button class="chip" aria-pressed="false" data-d="${ds(d)}">${AR[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth() + 1}</button>`).join('')}</div>
+      <h2>الموظفة</h2><select id="sf"><option value="">أي موظفة متاحة</option>${staff.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select>
+      <div id="tm"></div><div id="fm"></div>`;
+      $('sf').onchange = () => day && load();
+      $('dy').querySelectorAll('button').forEach((b) => b.onclick = () => { day = b.dataset.d; $('dy').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', x === b)); load(); });
+      day = null;
+    }
+    async function load() {
+      const L = chosen(), dur = L.reduce((n, x) => n + x.durationMin, 0), d = new Date(day + 'T00:00:00Z'), h = H[d.getUTCDay()], tm = $('tm'); pick = null; $('fm').innerHTML = '';
+      tm.innerHTML = '<div class="m">جارٍ حساب الأوقات...</div>';
+      try {
+        const ids = $('sf').value ? [$('sf').value] : staff.map((x) => x.id), by = {};
+        await Promise.all(ids.map(async (id) => { by[id] = (await F.getDoc(F.doc(db, 'schedules', id + '_' + day))).data()?.cells || {}; }));
+        slots = slotsFor({ open: h.open, close: h.close, durationMin: dur, cellsByStaff: by, date: day, now: Date.now() });
+        tm.innerHTML = slots.length ? `<h2>الوقت</h2><div class="chips">${slots.map((x, i) => `<button class="chip" aria-pressed="false" data-i="${i}">${fmt(x.m)}</button>`).join('')}</div>` : '<div class="row m">لا توجد أوقات متاحة بهذا اليوم، جرّبي يومًا آخر.</div>';
+        tm.querySelectorAll('button').forEach((b) => b.onclick = () => { pick = slots[b.dataset.i]; tm.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', x === b)); form(); });
+      } catch (e) { tm.innerHTML = '<div class="row bad">تعذر تحميل الأوقات.</div>'; }
+    }
+    function form() {
+      const L = chosen(), total = L.reduce((n, x) => n + x.price, 0) + fee;
+      $('fm').innerHTML = `<h2>بياناتك</h2><label for="cn">الاسم</label><input type="text" id="cn" autocomplete="name"><label for="cp">رقم الهاتف</label><input type="tel" id="cp" dir="ltr" placeholder="07XXXXXXXXX" autocomplete="tel">
+      <div class="m" id="er" role="status"></div><button id="go">تأكيد الحجز — ${money(total)}</button>`;
+      $('go').onclick = async () => {
+        const er = (t) => { $('er').className = 'm bad'; $('er').textContent = t; }, name = $('cn').value.trim(), ph = $('cp').value.trim().replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c));
+        if (name.length < 3) return er('اكتبي اسمك.'); if (!/^07[3-9]\d{8}$/.test(ph)) return er('رقم الهاتف غير صحيح (مثال: 07701234567).');
+        $('go').disabled = true; $('er').textContent = '';
+        const key = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)), sf = $('sf').value || pick.staff[0];
+        try {
+          const r = await bookSlot({ db, fs: { doc: F.doc, runTransaction: F.runTransaction }, user: auth.currentUser, salon: { id: slug }, staffId: sf, date: day, startMin: pick.m,
+            services: L.map((x) => ({ id: x.id, name: x.name, price: x.price, durationMin: x.durationMin })), settings: sets, idempotencyKey: key, source: 'online', src: SRC.includes(p) ? p : null, customerName: name, customerPhone: ph });
+          app.innerHTML = `<div class="row"><h2 class="ok">تم الحجز ✓</h2><div>${esc(S.name)}</div><div class="m">${day} · ${fmt(pick.m)}</div><div class="m">رمز الإكمال، قوليه للموظفة بعد انتهاء الخدمة:</div><div class="code" dir="ltr">${esc(r.code || '----')}</div><div class="m">احتفظي بالرمز، فلا تقدرين تشوفينه هنا بعد مغادرة الصفحة.</div></div>`;
+        } catch (e) { $('go').disabled = false; er(e.message === 'SLOT_TAKEN' ? 'هذا الوقت انحجز قبل لحظات. اختاري وقتًا آخر.' : e.message === 'NOT_CONFIGURED' ? 'إعدادات المنصة غير مكتملة.' : e.code === 'permission-denied' ? 'تعذر الحجز، تواصلي مع الصالون.' : 'تعذر الحجز. أعيدي المحاولة.'); if (e.message === 'SLOT_TAKEN') load(); }
+      };
+    }
   }
 } catch (e) { if (e) app.innerHTML = '<div class="row">تعذر التحميل. أعيدي المحاولة لاحقًا.</div>'; }
 </script></body></html>
