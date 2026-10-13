@@ -18,3 +18,12 @@ export function effectiveFees(salon, settings) {
   return { ...settings, customerFee: pick('customerFee'), salonCut: pick('salonCut') };
 }
 export const validFee = (n) => Number.isInteger(n) && n >= 0 && n <= 1000000;
+// الفترات: كل «تصفير» يؤرشف فترة في salons/{id}/periods بتاريخ closedAt. الفترة الحالية = ما اكتمل أو سُدِّد بعد آخر تصفير.
+export function currentPeriod(bookings, payments, lastClosedAt = 0) {
+  const after = (t) => !lastClosedAt || (t || 0) > lastClosedAt;     // بدون تصفير سابق: كل شيء (حتى الحجوزات القديمة بلا completedAt)
+  return { bookings: bookings.filter((b) => after(b.completedAt)), payments: payments.filter((p) => after(p.at)) };
+}
+export const canClose = (S) => S.count > 0 && S.remaining === 0;   // التصفير فقط عندما يكون المتبقي صفرًا وفيه حجوزات مكتملة
+export function periodRecord(S, from, closedAt, by) {
+  return { from, to: closedAt, closedAt, closedBy: by, count: S.count, servicesRevenue: S.servicesRevenue, customerFees: S.customerFees, salonCuts: S.salonCuts, due: S.due, paid: S.paid, remaining: 0, net: S.net };
+}
