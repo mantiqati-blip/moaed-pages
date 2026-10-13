@@ -51,9 +51,15 @@ const pubSync = (x, st) => F.setDoc(F.doc(db, 'publicSalons', x.id || x.slug), {
 async function list() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   const s = await F.getDocs(F.collection(db, 'salons')), L = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const pv = Object.fromEntries((await F.getDocs(F.collection(db, 'salonPrivate')).catch(() => ({ docs: [] }))).docs.map((d) => [d.id, d.data().ownerPhone])), legacy = L.filter((x) => x.ownerPhone);
   if (!L.length) { v.innerHTML = '<div class="row">لا توجد صالونات بعد. أضيفي أول صالون من تبويب «إضافة صالون».</div>'; return; }
-  v.innerHTML = '<div class="row s"><span class="m">القائمة العامة بالصفحة الرئيسية تُحدَّث تلقائيًا. استعملي الزر إذا نقصت صالونات قديمة.</span><button id="sy">مزامنة القائمة العامة</button></div>' + L.map((x) => `<div class="row s"><div><b>${esc(x.name)}</b> <span class="tag ${x.status === 'active' ? '' : 'off'}">${x.status === 'active' ? 'فعّال' : 'موقوف'}</span>
-    <div class="m" dir="ltr">/s/${esc(x.slug)} · ${esc(x.ownerPhone)}</div></div><button data-id="${esc(x.id)}" data-st="${x.status === 'active' ? 'suspended' : 'active'}">${x.status === 'active' ? 'إيقاف' : 'تفعيل'}</button></div>`).join('');
+  v.innerHTML = '<div class="row s"><span class="m">القائمة العامة بالصفحة الرئيسية تُحدَّث تلقائيًا. استعملي الزر إذا نقصت صالونات قديمة.</span><button id="sy">مزامنة القائمة العامة</button></div>' + (legacy.length ? `<div class="row s"><span class="m bad">${legacy.length} صالون ما زال رقم هاتف صاحبته داخل وثيقة الصالون المقروءة علنًا.</span><button id="mg">نقل الأرقام لمكان خاص</button></div>` : '') + L.map((x) => `<div class="row s"><div><b>${esc(x.name)}</b> <span class="tag ${x.status === 'active' ? '' : 'off'}">${x.status === 'active' ? 'فعّال' : 'موقوف'}</span>
+    <div class="m" dir="ltr">/s/${esc(x.slug)} · ${esc(pv[x.id] || x.ownerPhone || '')}</div></div><button data-id="${esc(x.id)}" data-st="${x.status === 'active' ? 'suspended' : 'active'}">${x.status === 'active' ? 'إيقاف' : 'تفعيل'}</button></div>`).join('');
+  if ($('mg')) $('mg').onclick = async () => {
+    if (!confirm(`نقل أرقام ${legacy.length} صالون إلى مكان خاص وحذفها من وثائق الصالونات؟`)) return; $('mg').disabled = true;
+    try { for (let i = 0; i < legacy.length; i += 200) { const b = F.writeBatch(db); legacy.slice(i, i + 200).forEach((x) => { b.set(F.doc(db, 'salonPrivate', x.id), { ownerPhone: x.ownerPhone }); b.update(F.doc(db, 'salons', x.id), { ownerPhone: F.deleteField() }); }); await b.commit(); } await audit('salon.phones.migrate', String(legacy.length)).catch(() => {}); list(); }
+    catch (e) { $('mg').disabled = false; alert('تعذر النقل: ' + (e.code || e.message)); }
+  };
   $('sy').onclick = async () => { $('sy').disabled = true; await Promise.all(L.map((x) => pubSync(x))); $('sy').textContent = 'تمت المزامنة (' + L.length + ')'; };
   v.querySelectorAll('button[data-st]').forEach((b) => b.onclick = async () => {
     const st = b.dataset.st; if (st === 'suspended' && !confirm('إيقاف الصالون؟ لن يظهر للزبونات.')) return;
@@ -87,7 +93,8 @@ function form() {
       try {
         const b = F.writeBatch(db);
         b.set(F.doc(db, 'users', ouid), { role: 'owner', status: 'active', salonId: slug, name: on });
-        b.set(F.doc(db, 'salons', slug), { name: $('n').value.trim(), slug, status: 'active', ownerUid: ouid, ownerPhone: ph, governorateId: $('gv').value, areaId: $('ar').value, createdAt: F.serverTimestamp(), createdBy: u.uid });
+        b.set(F.doc(db, 'salons', slug), { name: $('n').value.trim(), slug, status: 'active', ownerUid: ouid, governorateId: $('gv').value, areaId: $('ar').value, createdAt: F.serverTimestamp(), createdBy: u.uid });
+        b.set(F.doc(db, 'salonPrivate', slug), { ownerPhone: ph });                  // الهاتف خارج وثيقة الصالون المقروءة علنًا
         await b.commit(); await pubSync({ name: $('n').value.trim(), slug, governorateId: $('gv').value, areaId: $('ar').value, status: 'active' });
       } catch (e) { throw { code: 'partial', msg: `أُنشئ حساب ${un} لكن فشل حفظ الصالون (${e.code}). احذفي الحساب من Authentication ثم أعيدي.` }; }
       await audit('salon.create', slug).catch(() => {});
@@ -239,12 +246,13 @@ async function appsTab() {
       try {
         const cur = (await F.getDoc(ref)).data(), c = cur.calls || {}; if (c.voice?.status !== 'done' || c.video?.status !== 'done') throw { msg: 'المكالمتان لم تكتملا.' };
         if ((await F.getDoc(F.doc(db, 'salons', slug))).exists()) throw { msg: 'هذا الرابط مستعمل لصالون آخر.' };
-        if (!(await F.getDocs(F.query(F.collection(db, 'salons'), F.where('ownerPhone', '==', cur.ownerPhone)))).empty) throw { msg: 'هذا الرقم مسجّل لصالون آخر.' };
+        if (!(await F.getDocs(F.query(F.collection(db, 'salonPrivate'), F.where('ownerPhone', '==', cur.ownerPhone)))).empty || !(await F.getDocs(F.query(F.collection(db, 'salons'), F.where('ownerPhone', '==', cur.ownerPhone)))).empty) throw { msg: 'هذا الرقم مسجّل لصالون آخر.' };
         sApp = App.initializeApp(firebaseConfig, 'ap-' + Date.now()); const sA = A.getAuth(sApp), ouid = (await A.createUserWithEmailAndPassword(sA, un + '@local.salon', pw)).user.uid; await A.signOut(sA);
         try {
           const b = F.writeBatch(db);
           b.set(F.doc(db, 'users', ouid), { role: 'owner', status: 'active', salonId: slug, name: cur.ownerName });
-          b.set(F.doc(db, 'salons', slug), { name: cur.salonName, slug, status: 'active', ownerUid: ouid, ownerPhone: cur.ownerPhone, governorateId: cur.governorateId, areaId: cur.areaId, createdAt: F.serverTimestamp(), createdBy: u.uid });
+          b.set(F.doc(db, 'salons', slug), { name: cur.salonName, slug, status: 'active', ownerUid: ouid, governorateId: cur.governorateId, areaId: cur.areaId, createdAt: F.serverTimestamp(), createdBy: u.uid });
+          b.set(F.doc(db, 'salonPrivate', slug), { ownerPhone: cur.ownerPhone });
           b.update(ref, { status: 'approved', salonId: slug, decidedBy: u.uid, decidedAt: Date.now() }); await b.commit(); await pubSync({ name: cur.salonName, slug, governorateId: cur.governorateId, areaId: cur.areaId, status: 'active' });
         } catch (e) { throw { msg: `أُنشئ حساب ${un} لكن فشل الحفظ (${e.code}). احذفي الحساب من Authentication ثم أعيدي.` }; }
         await F.updateDoc(F.doc(db, 'salons', slug), { address: cur.address, whatsapp: cur.whatsapp, whatsapp2: cur.whatsapp2 || null, activityType: cur.activityType, hours: cur.hours, applicationId: x.id }).catch(() => {});
