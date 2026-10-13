@@ -39,6 +39,7 @@ import { cellKeys } from './js/cells.js';
 import { summarize, validatePayment, money, effectiveFees, validFee, currentPeriod, canClose, periodRecord } from './js/finance.js';
 import { toXLSX, downloadX, bookingColumns, dateOf, timeOf, STATUS } from './js/export.js';
 import { errText } from './js/strings.js';
+import { startNotifier } from './js/notify.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const AD = '٠١٢٣٤٥٦٧٨٩', latin = (s) => String(s).replace(/[٠-٩]/g, (d) => AD.indexOf(d));
@@ -335,4 +336,7 @@ async function feesTab() {
   });
 }
 tab(1);
+startNotifier({ F, db, role: 'admin', header: document.querySelector('header'), go: tab, watches: [
+  { kind: 'booking', q: F.query(F.collection(db, 'bookings'), F.where('status', '==', 'pending_admin')), label: 'حجوزات بانتظار قرارك', tab: 4 },
+  { kind: 'application', q: F.query(F.collection(db, 'applications'), F.where('status', '==', 'pending')), label: 'طلبات انضمام جديدة', tab: 7 }] });
 </script></body></html>
