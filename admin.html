@@ -21,7 +21,7 @@ label{display:block;font-weight:600;margin:12px 0 4px}input,select{width:100%;fo
 <header><b>لوحة الأدمن</b><span><span class="m" id="me"></span> <button id="out" hidden>خروج</button></span></header>
 <main id="app"><div class="row">جارٍ التحقق من الدخول...</div></main>
 <script type="module">
-import { configured, auth, db } from './js/fb.js';
+import { configured, auth, db, app as fbApp } from './js/fb.js';
 import { firebaseConfig } from './js/firebase-config.js';
 import { cellKeys } from './js/cells.js';
 import { summarize, validatePayment, money, effectiveFees, validFee, currentPeriod, canClose, periodRecord } from './js/finance.js';
@@ -182,12 +182,17 @@ async function accountsTab() {
       if (!confirm(`تصفير حساب ${r.name}؟\nيُؤرشف ${r.S.count} حجزًا (مستحق ${r.S.due}) وتبدأ فترة جديدة. لا تُحذف أي حجوزات.`)) return;
       btn.disabled = true; const t0 = Date.now();                                  // الحجوزات والتسديدات بعد t0 تذهب للفترة الجديدة
       try {
+        const st = (await F.getDoc(F.doc(db, 'platform', 'settings'))).data() || {};
+        if (st.useServerClose) {                                                      // التصفير من السيرفر (Cloud Functions) عند تفعيله: السيرفر يعيد حساب الأرقام بنفسه
+          const FN = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js');
+          await FN.httpsCallable(FN.getFunctions(fbApp, 'europe-west1'), 'closePeriod')({ salonId: r.id }); accountsTab(); return;
+        }
         const [bk, pg, pp] = await Promise.all([F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', r.id), F.where('status', '==', 'completed'))), F.getDocs(F.collection(db, 'salons', r.id, 'payments')), F.getDocs(F.collection(db, 'salons', r.id, 'periods'))]);
         const last = pp.docs.map((d) => d.data().closedAt || 0).sort((x, y) => y - x)[0] || 0, cur = currentPeriod(bk.docs.map((d) => d.data()), pg.docs.map((d) => d.data()), last), S = summarize(cur.bookings, cur.payments);
         if (!canClose(S)) { btn.disabled = false; return say('تغيّرت الأرقام: المتبقي ' + S.remaining + '. أعيدي تحميل الصفحة.'); }
         await F.addDoc(F.collection(db, 'salons', r.id, 'periods'), periodRecord(S, last, t0, u.uid));
         await audit('period.close', `${r.id}: ${S.count} bookings, due ${S.due}`).catch(() => {}); accountsTab();
-      } catch (e) { btn.disabled = false; say('تعذر التصفير: ' + errText(e)); }
+      } catch (e) { btn.disabled = false; say('تعذر التصفير: ' + (e.message === 'REMAINING_NOT_ZERO' ? 'المتبقي ليس صفرًا، أعيدي تحميل الصفحة.' : e.message === 'NOTHING_TO_CLOSE' ? 'لا توجد حجوزات مكتملة للتصفير.' : errText(e))); }
     });
   } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الحسابات: ' + esc(e.code) + '</div>'; }
 }
