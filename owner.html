@@ -26,6 +26,7 @@ import { summarize, money } from './js/finance.js';
 import { bookSlot } from './js/booking.js';
 import { cellKeys } from './js/cells.js';
 import { slotsFor, fmt } from './js/avail.js';
+import { toCSV, bookingColumns, download, dateOf } from './js/export.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const latin = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
@@ -111,8 +112,9 @@ async function bookings() {
       return `<div class="row"><div class="s"><b>${hm(b.start)} — ${esc(b.customerName || (b.source === 'blocked' ? 'وقت مغلق' : '—'))}</b><span class="tag ${b.status === 'confirmed' ? '' : 'off'}">${ST[b.status] || esc(b.status)}</span></div>
       <div class="m">${esc((b.services || []).map((x) => x.name).join('، '))} · ${esc(names[b.staffId] || '')}${b.source === 'online' ? '' : ' · يدوي'}</div><div class="m" dir="ltr" style="text-align:right">${esc(b.customerPhone || '')}</div>
       ${a.length ? `<div class="s" style="justify-content:flex-start;margin-top:8px">${a.join('')}</div>` : ''}</div>`;
-    }).join('') : '<div class="row">لا توجد حجوزات.</div>') + '<div id="msg" class="m" role="status"></div>';
+    }).join('') : '<div class="row">لا توجد حجوزات.</div>') + '<button id="ex" style="width:100%">تصدير كل حجوزات الصالون (Excel)</button><div id="msg" class="m" role="status"></div>';
   v.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { bf = b.dataset.f; bookings(); });
+  $('ex').onclick = () => { download(`bookings-${sid}-${dateOf(Date.now())}.csv`, toCSV(all, bookingColumns({ names }))); say(`صُدّر ${all.length} حجز. افتحي الملف بـ Excel.`, 'ok'); };
   v.querySelectorAll('[data-a]').forEach((b) => b.onclick = async () => {
     const id = b.dataset.id, ref = F.doc(db, 'bookings', id), a = b.dataset.a; let upd;
     if (a === 'done') { upd = { status: 'completed', completedAt: Date.now() }; if (b.dataset.o === '1') { const c = b.parentNode.querySelector('input').value.trim(); if (!/^\d{4}$/.test(c)) return say('أدخلي رمز الزبونة (٤ أرقام).', 'bad'); upd.codeEntered = c; } }
