@@ -7,7 +7,7 @@
 *{box-sizing:border-box}body{font-family:Cairo,sans-serif;background:var(--bg);color:var(--ink);margin:0}
 header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line)}
 header b{color:var(--ac);font-size:20px}main{max-width:720px;margin:0 auto;padding:18px}
-nav{display:flex;gap:8px;margin-bottom:16px}nav button{flex:1}
+nav{display:flex;gap:8px;margin-bottom:16px}nav button{flex:1;padding:10px 4px;font-size:14px}
 button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:10px 16px;cursor:pointer}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
 button.on,button.p{background:var(--ac);border-color:var(--ac);color:#fff}button:disabled{opacity:.5}
@@ -37,9 +37,9 @@ $('me').textContent = me.name || ''; $('out').hidden = false; $('out').onclick =
 const sid = me.salonId, sref = F.doc(db, 'salons', sid);
 const salon = (await F.getDoc(sref)).data() || {}; $('sn').textContent = salon.name || 'لوحة الصالون';
 const note = salon.status === 'active' ? '' : '<div class="row bad">صالونك موقوف حاليًا ولا يظهر للزبونات. تواصلي مع الإدارة.</div>';
-app.innerHTML = note + '<nav><button id="t1" class="on">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff][n - 1](); };
-[1, 2, 3].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings][n - 1](); };
+[1, 2, 3, 4].forEach((i) => $('t' + i).onclick = () => tab(i));
 const msgEl = () => $('msg'), say = (t, c = '') => { msgEl().className = 'm ' + c; msgEl().textContent = t; };
 async function services() {
   const v = $('v'), col = F.collection(db, 'salons', sid, 'services');
@@ -84,5 +84,40 @@ async function staff() {
     try { await F.addDoc(col, { name, status: 'pending', createdAt: F.serverTimestamp() }); staff(); } catch (e) { say('تعذر الإرسال: ' + e.code, 'bad'); }
   };
 }
-tab(1);
+const ST = { confirmed: 'مؤكد', completed: 'تمت الخدمة', no_show: 'لم تحضر', cancel_requested: 'طلب إلغاء', pending_admin: 'بانتظار قرار الإدارة', cancelled: 'ملغي' };
+let bf = 'today';
+async function bookings() {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>'; const names = {};
+  try { (await F.getDocs(F.collection(db, 'salons', sid, 'staff'))).docs.forEach((d) => names[d.id] = d.data().name); } catch (e) {}
+  let all; try { all = (await F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', sid)))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => a.start - b.start); }
+  catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الحجوزات: ' + esc(e.code) + '</div>'; return; }
+  const B3 = (t) => new Date(t + 3 * 36e5), dk = (t) => B3(t).toISOString().slice(0, 10), td = dk(Date.now()), now = Date.now();
+  const L = all.filter((b) => bf === 'today' ? dk(b.start) === td : bf === 'next' ? dk(b.start) > td : dk(b.start) < td);
+  if (bf === 'past') L.reverse();
+  const hm = (t) => { const d = B3(t); return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0'); };
+  v.innerHTML = `<div class="s" style="gap:8px;margin-bottom:8px">${[['today', 'اليوم'], ['next', 'القادمة'], ['past', 'السابقة']].map(([k, n]) => `<button style="flex:1" class="${bf === k ? 'on' : ''}" data-f="${k}">${n}</button>`).join('')}</div>` +
+    (L.length ? L.map((b) => {
+      const a = [];
+      if (b.status === 'confirmed') {
+        if (now >= b.start) a.push(`${b.source === 'online' ? '<input inputmode="numeric" maxlength="4" size="4" dir="ltr" placeholder="الرمز" style="width:90px" aria-label="رمز الزبونة">' : ''}<button class="p" data-a="done" data-id="${esc(b.id)}" data-o="${b.source === 'online' ? 1 : 0}">تمت الخدمة</button>`);
+        if (now >= b.end) a.push(`<button data-a="ns" data-id="${esc(b.id)}">لم تحضر</button>`);
+        if (b.source !== 'online') a.push(`<button data-a="cx" data-id="${esc(b.id)}">إلغاء</button>`);
+      }
+      if (b.status === 'cancel_requested') a.push(`<div class="m" style="width:100%">سبب الزبونة: ${esc(b.cancelReason)}</div><button data-a="ok" data-id="${esc(b.id)}">موافقة (تُحال للإدارة)</button><button data-a="no" data-id="${esc(b.id)}">رفض الإلغاء</button>`);
+      return `<div class="row"><div class="s"><b>${hm(b.start)} — ${esc(b.customerName || (b.source === 'blocked' ? 'وقت مغلق' : '—'))}</b><span class="tag ${b.status === 'confirmed' ? '' : 'off'}">${ST[b.status] || esc(b.status)}</span></div>
+      <div class="m">${esc((b.services || []).map((x) => x.name).join('، '))} · ${esc(names[b.staffId] || '')}${b.source === 'online' ? '' : ' · يدوي'}</div><div class="m" dir="ltr" style="text-align:right">${esc(b.customerPhone || '')}</div>
+      ${a.length ? `<div class="s" style="justify-content:flex-start;margin-top:8px">${a.join('')}</div>` : ''}</div>`;
+    }).join('') : '<div class="row">لا توجد حجوزات.</div>') + '<div id="msg" class="m" role="status"></div>';
+  v.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { bf = b.dataset.f; bookings(); });
+  v.querySelectorAll('[data-a]').forEach((b) => b.onclick = async () => {
+    const id = b.dataset.id, ref = F.doc(db, 'bookings', id), a = b.dataset.a; let upd;
+    if (a === 'done') { upd = { status: 'completed', completedAt: Date.now() }; if (b.dataset.o === '1') { const c = b.parentNode.querySelector('input').value.trim(); if (!/^\d{4}$/.test(c)) return say('أدخلي رمز الزبونة (٤ أرقام).', 'bad'); upd.codeEntered = c; } }
+    else if (a === 'ns') { if (!confirm('تسجيل أن الزبونة لم تحضر؟')) return; upd = { status: 'no_show', noShowAt: Date.now() }; }
+    else { const r = (prompt(a === 'cx' ? 'سبب الإلغاء؟' : a === 'ok' ? 'سبب الموافقة؟' : 'سبب رفض الإلغاء؟') || '').trim(); if (!r) return; upd = a === 'cx' ? { status: 'cancelled', directReason: r } : { status: a === 'ok' ? 'pending_admin' : 'confirmed', ownerReason: r }; }
+    b.disabled = true;
+    try { await F.updateDoc(ref, upd); await F.addDoc(F.collection(db, 'bookings', id, 'events'), { by: u.uid, action: a, at: Date.now() }).catch(() => {}); bookings(); }
+    catch (e) { b.disabled = false; say(a === 'done' ? 'تعذر الإكمال: الرمز غير صحيح أو لم يحن موعد الحجز بعد.' : 'تعذر التنفيذ: ' + e.code, 'bad'); }
+  });
+}
+tab(4);
 </script></body></html>
