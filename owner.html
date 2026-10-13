@@ -166,14 +166,14 @@ async function accounts() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   try {
     const [bs, ps, pr] = await Promise.all([F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', sid))), F.getDocs(F.collection(db, 'salons', sid, 'payments')), F.getDocs(F.collection(db, 'salons', sid, 'periods')).catch(() => ({ docs: [] }))]);   // القواعد القديمة: لا فترات
-    const old = pr.docs.map((d) => d.data()).sort((a, b) => b.closedAt - a.closedAt), cur = currentPeriod(bs.docs.map((d) => d.data()), ps.docs.map((d) => d.data()), old[0]?.closedAt || 0);
+    const old = pr.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.closedAt - a.closedAt), cur = currentPeriod(bs.docs.map((d) => d.data()), ps.docs.map((d) => d.data()), old[0]?.closedAt || 0);
     const S = summarize(cur.bookings, cur.payments), P = cur.payments.slice().sort((a, b) => b.at - a.at), dt = (t) => new Date(t + 3 * 36e5).toISOString().slice(0, 10);
     const line = (n, x) => `<div class="s" style="padding:4px 0"><span>${n}</span><b>${x}</b></div>`;
     v.innerHTML = `<div class="row" style="text-align:center"><div class="m">المتبقي للمنصة</div><div style="font-size:30px;font-weight:700;color:var(--ac)">${money(S.remaining)}</div>
       <div class="m">المستحق ${money(S.due)} · المسدد ${money(S.paid)}</div></div>
       <div class="row"><b>تفاصيل الحجوزات المكتملة (${S.count})</b>${line('إيراد الخدمات', money(S.servicesRevenue))}${line('رسوم الخدمة', money(S.customerFees))}${line('الاستقطاع', money(S.salonCuts))}${line('صافي الصالون', money(S.net))}</div>
       <div class="row"><b>التسديدات (الفترة الحالية)</b>${P.length ? P.map((p) => line(new Date(p.at + 3 * 36e5).toISOString().slice(0, 10), money(p.amount))).join('') : '<div class="m">لا توجد تسديدات بعد.</div>'}</div>
-      ${old.length ? `<div class="row"><b>فترات مصفّرة سابقًا</b>${old.map((p) => line(`حتى ${dt(p.closedAt)} · ${p.count} حجز`, money(p.due))).join('')}</div>` : ''}
+      ${old.length ? `<div class="row"><b>فترات مصفّرة سابقًا</b>${old.map((p) => line(`<a href="statement.html?salon=${encodeURIComponent(sid)}&period=${p.id}" target="_blank" rel="noopener" style="color:var(--ac)">كشف حتى ${dt(p.closedAt)}</a> · ${p.count} حجز`, money(p.due))).join('')}</div>` : ''}
       <div class="m">المستحق = (رسوم الخدمة + الاستقطاع) للحجوزات المكتملة فقط. التسديد والتصفير تسجّلهما الإدارة.</div>`;
   } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الحسابات: ' + esc(e.code) + '</div>'; }
 }
