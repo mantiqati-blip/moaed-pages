@@ -36,4 +36,4 @@ function planBooking({ salon, platform, staff, services, req, auth, now }) {
     },
   };
 }
-module.exports = { planBooking, toEpoch };
+module.exports = { planBooking, toEpoch, hm, CELL, TZ_MS };
