@@ -88,8 +88,7 @@ try {
   } else if (!slug) {
     // الرابط الموحد: الصالونات + انضمام صالون + دخول الصالون/الموظفة/الإدارة
     const safe = (p) => p.catch(() => null);
-    let [ps, gv, ar] = await Promise.all([safe(F.getDocs(F.query(F.collection(db, 'publicSalons'), F.where('status', '==', 'active')))), safe(F.getDocs(F.collection(db, 'governorates'))), safe(F.getDocs(F.collection(db, 'areas')))]);
-    if (!ps || ps.empty) ps = await safe(F.getDocs(F.query(F.collection(db, 'salons'), F.where('status', '==', 'active'))));   // قبل مزامنة القائمة العامة
+    const [ps, gv, ar] = await Promise.all([safe(F.getDocs(F.query(F.collection(db, 'publicSalons'), F.where('status', '==', 'active')))), safe(F.getDocs(F.collection(db, 'governorates'))), safe(F.getDocs(F.collection(db, 'areas')))]);
     const nameOf = (r) => Object.fromEntries((r?.docs || []).map((d) => [d.id, d.data().name]));
     const G = nameOf(gv), R = nameOf(ar), L = (ps?.docs || []).map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.name).sort((x, y) => x.name.localeCompare(y.name, 'ar'));
     const where = (x) => [R[x.areaId], G[x.governorateId]].filter(Boolean).join('، ');
