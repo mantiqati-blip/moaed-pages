@@ -9,11 +9,11 @@ header{display:flex;justify-content:space-between;align-items:center;padding:14p
 header b{color:var(--ac);font-size:20px}main{max-width:720px;margin:0 auto;padding:18px}
 nav{display:flex;gap:8px;margin-bottom:16px}nav{flex-wrap:wrap}nav button{flex:1 1 28%;padding:10px 4px;font-size:14px}
 button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:10px 16px;cursor:pointer}
-button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
 button.on,button.p{background:var(--ac);border-color:var(--ac);color:#fff}button:disabled{opacity:.5}
 .row{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:10px 0}
 .s{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.m{color:var(--mute);font-size:14px}
-label{display:block;font-weight:600;margin:12px 0 4px}input,select{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+label{display:block;font-weight:600;margin:12px 0 4px}input,select,textarea{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:520px){.g2{grid-template-columns:1fr}}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.tag{background:var(--soft);border-radius:8px;padding:2px 10px;font-size:13px}
 .tag.off{background:#eee;color:var(--mute)}[dir=ltr]{text-align:left}
@@ -38,6 +38,7 @@ import { firebaseConfig } from './js/firebase-config.js';
 import { cellKeys } from './js/cells.js';
 import { summarize, validatePayment, money, effectiveFees, validFee, currentPeriod, canClose, periodRecord } from './js/finance.js';
 import { validateApproval, approvalDocs, rejectUpdate } from './js/payreq.js';
+import { validateText, buildMessage, threadAfter, validateAnnouncement, buildAnnouncement, byTime, sortThreads } from './js/support.js';
 import { toXLSX, downloadX, bookingColumns, dateOf, timeOf, STATUS } from './js/export.js';
 import { errText } from './js/strings.js';
 import { startNotifier } from './js/notify.js';
@@ -58,9 +59,9 @@ let gov = [], areas = [];
 const [g, a] = await Promise.all([F.getDocs(F.collection(db, 'governorates')), F.getDocs(F.collection(db, 'areas'))]);
 gov = g.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
 areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
-app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button><button id="t7">طلبات الانضمام</button><button id="t8">الرسوم</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings, appsTab, feesTab][n - 1](); };
-[1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button><button id="t7">طلبات الانضمام</button><button id="t8">الرسوم</button><button id="t9">الرسائل</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings, appsTab, feesTab, supportTab][n - 1](); };
+[1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((i) => $('t' + i).onclick = () => tab(i));
 // نسخة عامة بدون بيانات خاصة (لا هاتف ولا حساب) تعرضها الصفحة الرئيسية. فشلها لا يمنع العملية الأصلية.
 const pubSync = (x, st) => F.setDoc(F.doc(db, 'publicSalons', x.id || x.slug), { name: x.name, slug: x.slug || x.id, governorateId: x.governorateId || '', areaId: x.areaId || '', status: st || x.status }).catch(() => {});
 async function list() {
@@ -166,6 +167,46 @@ async function cancelsTab() {
       await bt.commit(); await audit(yes ? 'booking.cancel' : 'booking.keep', b.id).catch(() => {}); cancelsTab();
     } catch (e) { btn.disabled = false; $('msg').className = 'm bad'; $('msg').textContent = 'تعذر التنفيذ: ' + errText(e); }
   });
+}
+const tmStr = (t) => '\u2066' + new Date(t + 3 * 36e5).toISOString().slice(0, 16).replace('T', ' ') + '\u2069';   // معزول يسارًا ليبقى ترتيب التاريخ سليمًا داخل النص العربي
+async function supportTab(openSid = null) {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+  try {
+    const [an, th] = await Promise.all([F.getDocs(F.collection(db, 'announcements')).catch(() => ({ docs: [] })), F.getDocs(F.collection(db, 'supportThreads')).catch(() => ({ docs: [] }))]);
+    const AN = an.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => y.createdAt - x.createdAt), TH = sortThreads(th.docs.map((d) => ({ id: d.id, ...d.data() })));
+    v.innerHTML = `<form id="af" class="row"><b>إعلان جديد لكل الصالونات</b><div class="m">يظهر بتبويب «الرسائل» عند صاحبات الصالونات وتصلهن به إشارة بالجرس. داخل المنصة فقط.</div>
+      <label for="at">العنوان</label><input id="at" maxlength="80"><label for="ab">النص</label><textarea id="ab" rows="3" maxlength="2000"></textarea><div id="am" class="m" role="status"></div><button class="p">نشر الإعلان</button></form>
+      <div class="row"><b>الإعلانات</b>${AN.length ? AN.map((x, i) => `<div style="padding:8px 0;border-top:1px solid var(--line)"><div class="s"><span><b>${esc(x.title)}</b> <span class="m">${tmStr(x.createdAt)}${x.active ? '' : ' · موقوف'}</span></span><span><button data-ta="${i}">${x.active ? 'إيقاف' : 'تفعيل'}</button> <button data-da="${i}">حذف</button></span></div><div class="m" style="white-space:pre-wrap">${esc(x.body)}</div></div>`).join('') : '<div class="m">لا توجد إعلانات.</div>'}</div>
+      <div class="row"><b>رسائل الدعم من الصالونات</b>${TH.length ? TH.map((t, i) => `<div class="s" style="padding:8px 0;border-top:1px solid var(--line)"><span><b>${esc(t.salonName || t.id)}</b>${t.awaitingAdmin ? ' <span class="tag">بانتظار ردك</span>' : ''}<div class="m">${t.lastFrom === 'admin' ? 'ردّك: ' : ''}${esc(t.lastText)} · ${tmStr(t.lastAt)}</div></span><button data-th="${i}">فتح</button></div>`).join('') : '<div class="m">لا توجد محادثات بعد.</div>'}</div><div id="thv"></div><div id="msg" class="m" role="status"></div>`;
+    const bad = (t) => { $('msg').className = 'm bad'; $('msg').textContent = t; };
+    $('af').onsubmit = async (ev) => {
+      ev.preventDefault(); const e1 = validateAnnouncement($('at').value, $('ab').value); if (e1) { $('am').className = 'm bad'; $('am').textContent = e1; return; }
+      ev.submitter && (ev.submitter.disabled = true);
+      try { await F.addDoc(F.collection(db, 'announcements'), buildAnnouncement({ title: $('at').value, body: $('ab').value, uid: u.uid, now: Date.now() })); await audit('announcement.create', $('at').value.trim().slice(0, 40)).catch(() => {}); supportTab(); }
+      catch (e) { if (ev.submitter) ev.submitter.disabled = false; $('am').className = 'm bad'; $('am').textContent = 'تعذر النشر: ' + errText(e); }
+    };
+    v.querySelectorAll('button[data-ta]').forEach((b) => b.onclick = async () => { const x = AN[b.dataset.ta]; b.disabled = true; try { await F.updateDoc(F.doc(db, 'announcements', x.id), { active: !x.active }); supportTab(); } catch (e) { b.disabled = false; bad('تعذر التحديث: ' + errText(e)); } });
+    v.querySelectorAll('button[data-da]').forEach((b) => b.onclick = async () => { const x = AN[b.dataset.da]; if (!confirm('حذف الإعلان نهائيًا؟')) return; b.disabled = true; try { await F.deleteDoc(F.doc(db, 'announcements', x.id)); await audit('announcement.delete', x.id).catch(() => {}); supportTab(); } catch (e) { b.disabled = false; bad('تعذر الحذف: ' + errText(e)); } });
+    const openThread = async (t) => {
+      const box = $('thv'); box.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+      try {
+        const M = byTime((await F.getDocs(F.collection(db, 'salons', t.id, 'support'))).docs.map((d) => d.data()));
+        box.innerHTML = `<div class="row"><b>محادثة ${esc(t.salonName || t.id)}</b><div id="th" style="max-height:340px;overflow:auto;margin:8px 0">${M.map((m) => `<div style="margin:6px 0;display:flex;justify-content:${m.from === 'owner' ? 'flex-start' : 'flex-end'}"><div style="max-width:85%;padding:8px 12px;border-radius:12px;background:${m.from === 'owner' ? 'var(--soft)' : 'var(--card)'};border:1px solid var(--line)"><div class="m">${m.from === 'owner' ? 'الصالون' : 'أنتِ'} · ${tmStr(m.at)}</div><div style="white-space:pre-wrap">${esc(m.text)}</div></div></div>`).join('')}</div>
+          <form id="rf"><label for="rt">ردّك</label><textarea id="rt" rows="3" maxlength="1000"></textarea><div id="rm" class="m" role="status"></div><button class="p">إرسال الرد</button></form></div>`;
+        $('th').scrollTop = $('th').scrollHeight; box.scrollIntoView({ block: 'nearest' });
+        $('rf').onsubmit = async (ev) => {
+          ev.preventDefault(); const e2 = validateText($('rt').value); if (e2) { $('rm').className = 'm bad'; $('rm').textContent = e2; return; }
+          ev.submitter && (ev.submitter.disabled = true); const now = Date.now(), text = $('rt').value;
+          try {
+            const b = F.writeBatch(db); b.set(F.doc(F.collection(db, 'salons', t.id, 'support')), buildMessage({ text, from: 'admin', uid: u.uid, now }));
+            b.set(F.doc(db, 'supportThreads', t.id), threadAfter({ salonName: t.salonName, text, from: 'admin', now })); await b.commit(); await audit('support.reply', t.id).catch(() => {}); supportTab(t.id);
+          } catch (e) { if (ev.submitter) ev.submitter.disabled = false; $('rm').className = 'm bad'; $('rm').textContent = 'تعذر الإرسال: ' + errText(e); }
+        };
+      } catch (e) { box.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(errText(e)) + '</div>'; }
+    };
+    v.querySelectorAll('button[data-th]').forEach((b) => b.onclick = () => openThread(TH[b.dataset.th]));
+    const pre = openSid && TH.find((t) => t.id === openSid); if (pre) openThread(pre);
+  } catch (e) { v.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(errText(e)) + '</div>'; }
 }
 async function accountsTab() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
@@ -357,5 +398,6 @@ async function feesTab() {
 tab(1);
 startNotifier({ F, db, role: 'admin', header: document.querySelector('header'), go: tab, watches: [
   { kind: 'booking', q: F.query(F.collection(db, 'bookings'), F.where('status', '==', 'pending_admin')), label: 'حجوزات بانتظار قرارك', tab: 4 },
-  { kind: 'application', q: F.query(F.collection(db, 'applications'), F.where('status', '==', 'pending')), label: 'طلبات انضمام جديدة', tab: 7 }] });
+  { kind: 'application', q: F.query(F.collection(db, 'applications'), F.where('status', '==', 'pending')), label: 'طلبات انضمام جديدة', tab: 7 },
+  { kind: 'support', q: F.query(F.collection(db, 'supportThreads'), F.where('awaitingAdmin', '==', true)), label: 'رسائل دعم بانتظار ردك', tab: 9 }] });
 </script></body></html>
