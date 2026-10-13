@@ -5,7 +5,7 @@ export function usernameToEmail(u) {
   if (!USER_RE.test(s)) throw new Error('BAD_USERNAME');
   return `${s}@local.salon`;
 }
-export const homeFor = (role) => ({ admin: 'admin.html', owner: 'owner.html', staff: 'owner.html' }[role] || null);
+export const homeFor = (role) => ({ admin: 'admin.html', owner: 'owner.html', staff: 'staff.html' }[role] || null);
 export function authErrorMessage(code) {
   if (['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email'].includes(code)) return 'اسم المستخدم أو كلمة السر غير صحيحة.';
   if (code === 'auth/too-many-requests') return 'محاولات كثيرة، حاولي بعد قليل.';

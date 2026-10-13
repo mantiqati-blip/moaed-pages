@@ -1,0 +1,60 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>صفحة الموظفة — موعد أنوثة</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBF5F7;--card:#fff;--ink:#2A1722;--mute:#7A6571;--line:#EBDCE3;--ac:#B83A6B;--soft:#F8E3EC;--bad:#c0392b}
+*{box-sizing:border-box}body{font-family:Cairo,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+header b{color:var(--ac);font-size:20px}main{max-width:640px;margin:0 auto;padding:16px}
+.row{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:10px 0}
+.s{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.m{color:var(--mute);font-size:14px}.bad{color:var(--bad)}
+button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:10px 16px;cursor:pointer}
+button.p,button.on{background:var(--ac);border-color:var(--ac);color:#fff}button:disabled{opacity:.5}
+button:focus-visible,input:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+input{font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:10px;width:90px}
+.tag{background:var(--soft);border-radius:8px;padding:2px 10px;font-size:13px}.tag.off{background:#eee;color:var(--mute)}
+</style></head><body>
+<header><b id="sn">موظفة الصالون</b><span><span class="m" id="me"></span> <button id="out" hidden>خروج</button></span></header>
+<main id="app"><div class="row">جارٍ التحقق من الدخول...</div></main>
+<script type="module">
+import { configured, auth, db } from './js/fb.js';
+const $ = (i) => document.getElementById(i), app = $('app');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+if (!configured) { app.innerHTML = '<div class="row bad">إعدادات Firebase غير مضبوطة.</div>'; throw 0; }
+const A = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
+const F = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+await auth.authStateReady?.();
+const u = auth.currentUser; let me = null;
+if (u && !u.isAnonymous) { try { me = (await F.getDoc(F.doc(db, 'users', u.uid))).data(); } catch (e) {} }
+if (!me || me.status !== 'active' || me.role !== 'staff' || !me.staffId) { app.innerHTML = '<div class="row">هذه الصفحة للموظفات. <a href="login.html">سجّلي الدخول</a>.</div>'; throw 0; }
+$('me').textContent = me.name || ''; $('out').hidden = false; $('out').onclick = async () => { await A.signOut(auth); location.href = 'login.html'; };
+try { $('sn').textContent = (await F.getDoc(F.doc(db, 'salons', me.salonId))).data()?.name || 'موظفة الصالون'; } catch (e) {}
+const ST = { confirmed: 'مؤكد', completed: 'تمت الخدمة', no_show: 'لم تحضر', cancel_requested: 'طلب إلغاء', pending_admin: 'طلب إلغاء', cancelled: 'ملغي' };
+let bf = 'today';
+async function load() {
+  app.innerHTML = '<div class="row">جارٍ التحميل...</div>'; let all;
+  try { all = (await F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', me.salonId)))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((b) => b.staffId === me.staffId).sort((a, b) => a.start - b.start); }
+  catch (e) { app.innerHTML = '<div class="row bad">تعذر تحميل الحجوزات: ' + esc(e.code) + '</div>'; return; }
+  const B3 = (t) => new Date(t + 3 * 36e5), dk = (t) => B3(t).toISOString().slice(0, 10), td = dk(Date.now()), now = Date.now();
+  const L = all.filter((b) => bf === 'today' ? dk(b.start) === td : dk(b.start) > td), hm = (t) => String(B3(t).getUTCHours()).padStart(2, '0') + ':' + String(B3(t).getUTCMinutes()).padStart(2, '0');
+  app.innerHTML = `<div class="s" style="gap:8px;margin-bottom:8px">${[['today', 'اليوم'], ['next', 'القادمة']].map(([k, n]) => `<button style="flex:1" class="${bf === k ? 'on' : ''}" data-f="${k}">${n}</button>`).join('')}</div>` +
+    (L.length ? L.map((b) => {
+      const a = [];
+      if (b.status === 'confirmed' && now >= b.start) a.push(`${b.source === 'online' ? '<input inputmode="numeric" maxlength="4" dir="ltr" placeholder="الرمز" aria-label="رمز الزبونة">' : ''}<button class="p" data-a="done" data-id="${esc(b.id)}" data-o="${b.source === 'online' ? 1 : 0}">تمت الخدمة</button>`);
+      if (b.status === 'confirmed' && now >= b.end) a.push(`<button data-a="ns" data-id="${esc(b.id)}">لم تحضر</button>`);
+      return `<div class="row"><div class="s"><b>${hm(b.start)} — ${esc(b.customerName || (b.source === 'blocked' ? 'وقت مغلق' : '—'))}</b><span class="tag ${b.status === 'confirmed' ? '' : 'off'}">${ST[b.status] || esc(b.status)}</span></div>
+      <div class="m">${esc((b.services || []).map((x) => x.name).join('، '))}</div>${a.length ? `<div class="s" style="justify-content:flex-start;margin-top:8px">${a.join('')}</div>` : ''}</div>`;
+    }).join('') : '<div class="row">لا توجد حجوزات.</div>') + '<div id="msg" class="m" role="status"></div>';
+  app.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { bf = b.dataset.f; load(); });
+  app.querySelectorAll('[data-a]').forEach((b) => b.onclick = async () => {
+    const id = b.dataset.id, say = (t) => { $('msg').className = 'm bad'; $('msg').textContent = t; }; let upd;
+    if (b.dataset.a === 'done') { upd = { status: 'completed', completedAt: Date.now() }; if (b.dataset.o === '1') { const c = b.parentNode.querySelector('input').value.trim(); if (!/^\d{4}$/.test(c)) return say('أدخلي رمز الزبونة (٤ أرقام).'); upd.codeEntered = c; } }
+    else { if (!confirm('تسجيل أن الزبونة لم تحضر؟')) return; upd = { status: 'no_show', noShowAt: Date.now() }; }
+    b.disabled = true;
+    try { await F.updateDoc(F.doc(db, 'bookings', id), upd); await F.addDoc(F.collection(db, 'bookings', id, 'events'), { by: u.uid, action: b.dataset.a, at: Date.now() }).catch(() => {}); load(); }
+    catch (e) { b.disabled = false; say(b.dataset.a === 'done' ? 'تعذر الإكمال: الرمز غير صحيح أو لم يحن موعد الحجز بعد.' : 'تعذر التنفيذ: ' + (e.code || '')); }
+  });
+}
+load();
+</script></body></html>

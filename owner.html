@@ -36,7 +36,7 @@ await auth.authStateReady?.();
 const u = auth.currentUser; let me = null;
 if (u && !u.isAnonymous) { try { me = (await F.getDoc(F.doc(db, 'users', u.uid))).data(); } catch (e) {} }
 if (!me || me.status !== 'active' || !['owner', 'staff'].includes(me.role)) { app.innerHTML = '<div class="row">هذه الصفحة لصاحبة الصالون. <a href="login.html">سجّلي الدخول</a>.</div>'; throw 0; }
-if (me.role !== 'owner') { app.innerHTML = '<div class="row">إدارة الصالون لصاحبته فقط. صفحة الموظفة قادمة لاحقًا.</div>'; throw 0; }
+if (me.role !== 'owner') { app.innerHTML = '<div class="row">إدارة الصالون لصاحبته فقط. صفحتك: <a href="staff.html">صفحة الموظفة</a>.</div>'; throw 0; }
 $('me').textContent = me.name || ''; $('out').hidden = false; $('out').onclick = async () => { await A.signOut(auth); location.href = 'login.html'; };
 const sid = me.salonId, sref = F.doc(db, 'salons', sid);
 const salon = (await F.getDoc(sref)).data() || {}; $('sn').textContent = salon.name || 'لوحة الصالون';
