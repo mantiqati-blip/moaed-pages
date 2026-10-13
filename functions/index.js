@@ -4,6 +4,7 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const crypto = require('node:crypto');
 const { planBooking } = require('./plan.js');
+const { planClose } = require('./period.js');
 initializeApp();
 const db = getFirestore(), MAX_ACTIVE_PER_PHONE = 3;
 
@@ -36,5 +37,31 @@ exports.createBooking = onCall({ region: 'europe-west1', maxInstances: 20 }, asy
     if (e instanceof HttpsError) throw e;
     if (e && e.code && /^(invalid-argument|failed-precondition|permission-denied)$/.test(e.code)) throw new HttpsError(e.code, e.message);
     console.error('createBooking', e); throw new HttpsError('internal', 'INTERNAL');
+  }
+});
+
+// تصفير حساب صالون من السيرفر: للأدمن فقط. يقرأ الحجوزات والتسديدات بنفسه ولا يثق بأرقام العميل.
+exports.closePeriod = onCall({ region: 'europe-west1', maxInstances: 5 }, async (call) => {
+  if (!call.auth) throw new HttpsError('unauthenticated', 'LOGIN_REQUIRED');
+  const me = await db.doc(`users/${call.auth.uid}`).get();
+  if (!me.exists || me.data().role !== 'admin' || me.data().status !== 'active') throw new HttpsError('permission-denied', 'ADMIN_ONLY');
+  const salonId = String((call.data || {}).salonId || '');
+  if (!/^[a-z0-9-]{2,40}$/.test(salonId)) throw new HttpsError('invalid-argument', 'BAD_IDS');
+  const now = Date.now();
+  try {
+    return await db.runTransaction(async (tx) => {
+      const [bs, ps, per] = await Promise.all([
+        tx.get(db.collection('bookings').where('salonId', '==', salonId).where('status', '==', 'completed')),
+        tx.get(db.collection(`salons/${salonId}/payments`)), tx.get(db.collection(`salons/${salonId}/periods`))]);
+      const last = per.docs.reduce((m, d) => Math.max(m, d.data().closedAt || 0), 0);
+      const rec = planClose({ bookings: bs.docs.map((d) => d.data()), payments: ps.docs.map((d) => d.data()), lastClosedAt: last, by: call.auth.uid, now });
+      const ref = db.collection(`salons/${salonId}/periods`).doc();
+      tx.set(ref, rec); tx.set(db.collection('audit').doc(), { by: call.auth.uid, action: 'period.close', target: `${salonId}: ${rec.count} bookings, due ${rec.due}`, at: now });
+      return { id: ref.id, ...rec };
+    });
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    if (e && e.code === 'failed-precondition') throw new HttpsError('failed-precondition', e.message);
+    console.error('closePeriod', e); throw new HttpsError('internal', 'INTERNAL');
   }
 });
