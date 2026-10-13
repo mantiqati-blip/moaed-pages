@@ -28,3 +28,20 @@ test('البيانات المنظّمة: ترتيب وروابط مشفّرة', 
   const { itemListJsonLd } = await D, j = itemListJsonLd(L.slice(0, 2), 'https://x.test/p/');
   assert.equal(j['@type'], 'ItemList'); assert.equal(j.itemListElement[1].position, 2); assert.equal(j.itemListElement[0].url, 'https://x.test/p/?salon=a');
 });
+
+test('فلتر الخدمة: يطابق جزءًا من الاسم بالتطبيع ويعمل مع بقية الفلاتر', async () => {
+  const { filterSalons } = await D;
+  const S = [{ id: 'a', name: 'أ', governorateId: 'bg', svc: ['صبغة شعر', 'مكياج'] }, { id: 'b', name: 'ب', governorateId: 'bs', svc: ['قص شعر'] }, { id: 'c', name: 'ج' }];
+  assert.deepEqual(filterSalons(S, { s: 'صبغه' }).map((x) => x.id), ['a']);
+  assert.deepEqual(filterSalons(S, { s: 'شعر' }).map((x) => x.id), ['a', 'b']);
+  assert.deepEqual(filterSalons(S, { s: 'شعر', g: 'bs' }).map((x) => x.id), ['b']);
+  assert.equal(filterSalons(S, { s: '' }).length, 3);
+  assert.deepEqual(filterSalons(S, { s: 'تنظيف' }), []);
+});
+test('أكثر الخدمات شيوعًا: عدّ لكل صالون مرة، ترتيب بالعدد ثم الاسم', async () => {
+  const { topServices } = await D;
+  const S = [{ svc: ['قص شعر', 'قص شعر', 'مكياج'] }, { svc: ['قص شعر'] }, { svc: ['مكياج', 'حنة'] }, {}];
+  assert.deepEqual(topServices(S, 2), ['قص شعر', 'مكياج']);
+  assert.deepEqual(topServices(S, 10), ['قص شعر', 'مكياج', 'حنة']);
+  assert.deepEqual(topServices([]), []);
+});
