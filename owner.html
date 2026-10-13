@@ -9,11 +9,11 @@ header{display:flex;justify-content:space-between;align-items:center;padding:14p
 header b{color:var(--ac);font-size:20px}main{max-width:720px;margin:0 auto;padding:18px}
 nav{display:flex;gap:8px;margin-bottom:16px}nav{flex-wrap:wrap}nav button{flex:1 1 28%;padding:10px 4px;font-size:14px}
 button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:10px 16px;cursor:pointer}
-button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
 button.on,button.p{background:var(--ac);border-color:var(--ac);color:#fff}button:disabled{opacity:.5}
 .row{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:10px 0}
 .s{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.m{color:var(--mute);font-size:14px}
-label{display:block;font-weight:600;margin:12px 0 4px}input,select{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;width:100%}
+label{display:block;font-weight:600;margin:12px 0 4px}input,select,textarea{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;width:100%}
 .g3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px}@media(max-width:520px){.g3{grid-template-columns:1fr}}
 .d{display:grid;grid-template-columns:80px 1fr 1fr 70px;gap:8px;align-items:center;margin:8px 0}.d input{padding:8px}.d input[type=checkbox]{width:20px;height:20px}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.tag{background:var(--soft);border-radius:8px;padding:2px 10px;font-size:13px}.tag.off{background:#eee;color:var(--mute)}
@@ -37,6 +37,7 @@ main{max-width:1120px}
 import { configured, auth, db } from './js/fb.js';
 import { summarize, money, effectiveFees, currentPeriod } from './js/finance.js';
 import { validateRequest, buildRequest, pendingTotal, parseAmount, STATUS } from './js/payreq.js';
+import { validateText, buildMessage, threadAfter, visibleAnnouncements, byTime, unreadFromAdmin } from './js/support.js';
 import { bookSlot } from './js/booking.js';
 import { cellKeys, toEpoch } from './js/cells.js';
 import { slotsFor, fmt } from './js/avail.js';
@@ -59,9 +60,9 @@ $('me').textContent = me.name || ''; $('out').hidden = false; $('out').onclick =
 const sid = me.salonId, sref = F.doc(db, 'salons', sid);
 const salon = (await F.getDoc(sref)).data() || {}; $('sn').textContent = salon.name || 'لوحة الصالون';
 const note = salon.status === 'active' ? '' : '<div class="row bad">صالونك موقوف حاليًا ولا يظهر للزبونات. تواصلي مع الإدارة.</div>';
-app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button><button id="t5">الحسابات</button><button id="t6">حجز يدوي</button><button id="t7">رابط وQR</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5, 6, 7].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings, accounts, manual, linkQr][n - 1](); };
-[1, 2, 3, 4, 5, 6, 7].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button><button id="t5">الحسابات</button><button id="t6">حجز يدوي</button><button id="t7">رابط وQR</button><button id="t8">الرسائل</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings, accounts, manual, linkQr, messages][n - 1](); };
+[1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => $('t' + i).onclick = () => tab(i));
 const msgEl = () => $('msg'), say = (t, c = '') => { msgEl().className = 'm ' + c; msgEl().textContent = t; };
 function linkQr() {
   const url = new URL('./?salon=' + encodeURIComponent(sid), location.href).href, q = qrcode(0, 'M'); q.addData(url); q.make();
@@ -228,6 +229,29 @@ async function accounts() {
     });
   } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الحسابات: ' + esc(e.code) + '</div>'; }
 }
+async function messages() {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+  try {
+    const [an, ms] = await Promise.all([F.getDocs(F.collection(db, 'announcements')).catch(() => ({ docs: [] })), F.getDocs(F.collection(db, 'salons', sid, 'support'))]);
+    const A = visibleAnnouncements(an.docs.map((d) => d.data())), M = byTime(ms.docs.map((d) => d.data())), tm = (t) => '\u2066' + new Date(t + 3 * 36e5).toISOString().slice(0, 16).replace('T', ' ') + '\u2069';
+    const seenKey = 'moaed.support.seen.' + sid; let seen = 0; try { seen = Number(localStorage.getItem(seenKey)) || 0; } catch (e) {}
+    const fresh = unreadFromAdmin(M, seen);
+    v.innerHTML = `<div class="row"><b>إعلانات الإدارة</b>${A.length ? A.map((x) => `<div style="padding:8px 0;border-top:1px solid var(--line)"><b>${esc(x.title)}</b> <span class="m">${tm(x.createdAt)}</span><div style="white-space:pre-wrap">${esc(x.body)}</div></div>`).join('') : '<div class="m">لا توجد إعلانات.</div>'}</div>
+      <div class="row"><b>مراسلة الإدارة</b>${fresh ? `<span class="tag">${fresh} جديد</span>` : ''}<div class="m">للأسئلة والمشاكل. الرسائل داخل المنصة فقط، وتردّ الإدارة هنا.</div>
+        <div id="th" style="max-height:340px;overflow:auto;margin:8px 0">${M.length ? M.map((m) => `<div style="margin:6px 0;display:flex;justify-content:${m.from === 'owner' ? 'flex-start' : 'flex-end'}"><div style="max-width:85%;padding:8px 12px;border-radius:12px;background:${m.from === 'owner' ? 'var(--soft)' : 'var(--card)'};border:1px solid var(--line)"><div class="m">${m.from === 'owner' ? 'أنتِ' : 'الإدارة'} · ${tm(m.at)}</div><div style="white-space:pre-wrap">${esc(m.text)}</div></div></div>`).join('') : '<div class="m">لا رسائل بعد.</div>'}</div>
+        <form id="sf2"><label for="st">رسالتك</label><textarea id="st" rows="3" maxlength="1000"></textarea><div id="sm2" class="m" role="status"></div><button class="p">إرسال</button></form></div>`;
+    const th = $('th'); th.scrollTop = th.scrollHeight;
+    try { localStorage.setItem(seenKey, String(Math.max(seen, ...M.filter((m) => m.from === 'admin').map((m) => m.at), 0))); } catch (e) {}
+    $('sf2').onsubmit = async (ev) => {
+      ev.preventDefault(); const sm = $('sm2'), bad = validateText($('st').value); if (bad) { sm.className = 'm bad'; sm.textContent = bad; return; }
+      ev.submitter && (ev.submitter.disabled = true); const now = Date.now(), text = $('st').value;
+      try {
+        const b = F.writeBatch(db), mref = F.doc(F.collection(db, 'salons', sid, 'support'));
+        b.set(mref, buildMessage({ text, from: 'owner', uid: u.uid, now })); b.set(F.doc(db, 'supportThreads', sid), threadAfter({ salonName: salon.name, text, from: 'owner', now })); await b.commit(); messages();
+      } catch (e) { if (ev.submitter) ev.submitter.disabled = false; sm.className = 'm bad'; sm.textContent = 'تعذر الإرسال: ' + errText(e); }
+    };
+  } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الرسائل: ' + esc(e.code) + '</div>'; }
+}
 async function manual() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>'; let sets, SV, ST;
   try { [sets, SV, ST] = await Promise.all([F.getDoc(F.doc(db, 'platform', 'settings')).then((d) => d.data() || {}), F.getDocs(F.collection(db, 'salons', sid, 'services')), F.getDocs(F.collection(db, 'salons', sid, 'staff'))]); }
@@ -275,5 +299,7 @@ async function manual() {
 tab(4);
 startNotifier({ F, db, role: 'owner', header: document.querySelector('header'), go: tab, watches: [
   { kind: 'booking', q: F.query(F.collection(db, 'bookings'), F.where('salonId', '==', sid)), label: 'طلبات إلغاء بانتظار قرارك', tab: 4 },
-  { kind: 'payreq', q: F.query(F.collection(db, 'salons', sid, 'paymentRequests')), tab: 5 }] });
+  { kind: 'payreq', q: F.query(F.collection(db, 'salons', sid, 'paymentRequests')), tab: 5 },
+  { kind: 'support', q: F.query(F.collection(db, 'salons', sid, 'support')), tab: 8 },
+  { kind: 'announce', q: F.query(F.collection(db, 'announcements')), tab: 8 }] });
 </script></body></html>
