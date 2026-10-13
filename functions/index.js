@@ -1,10 +1,11 @@
 // دالة إنشاء الحجز من السيرفر (تحتاج Blaze). لم تُنشر ولم تُجرَّب على Firebase: المنطق بـ plan.js مختبر، وهذا الملف يربطه بـ Firestore فقط.
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
-const { getFirestore } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const crypto = require('node:crypto');
 const { planBooking } = require('./plan.js');
 const { planClose } = require('./period.js');
+const { planReschedule } = require('./reschedule.js');
 initializeApp();
 const db = getFirestore(), MAX_ACTIVE_PER_PHONE = 3;
 
@@ -63,5 +64,36 @@ exports.closePeriod = onCall({ region: 'europe-west1', maxInstances: 5 }, async 
     if (e instanceof HttpsError) throw e;
     if (e && e.code === 'failed-precondition') throw new HttpsError('failed-precondition', e.message);
     console.error('closePeriod', e); throw new HttpsError('internal', 'INTERNAL');
+  }
+});
+
+// تعديل موعد الزبونة من السيرفر (مرة واحدة، قبل المهلة، نفس الموظفة والمدة). لم يُجرَّب على Firebase: المنطق بـ reschedule.js مختبر.
+exports.rescheduleBooking = onCall({ region: 'europe-west1', maxInstances: 20 }, async (call) => {
+  if (!call.auth) throw new HttpsError('unauthenticated', 'LOGIN_REQUIRED');
+  const d = call.data || {}, id = String(d.bookingId || '');
+  if (!/^[A-Za-z0-9-]{16,64}$/.test(id)) throw new HttpsError('invalid-argument', 'BAD_IDS');
+  const now = Date.now(), bref = db.doc(`bookings/${id}`);
+  try {
+    return await db.runTransaction(async (tx) => {
+      const bs = await tx.get(bref); if (!bs.exists) throw new HttpsError('not-found', 'NOT_FOUND');
+      const booking = bs.data();
+      const [ss, ps] = await Promise.all([tx.get(db.doc(`salons/${booking.salonId}`)), tx.get(db.doc('platform/settings'))]);
+      const p = planReschedule({ booking, salon: ss.exists ? { id: booking.salonId, ...ss.data() } : null, platform: ps.data() || {}, auth: call.auth, req: { date: d.date, startMin: d.startMin }, now });
+      const oref = db.doc(`schedules/${p.oldSchedule}`), nref = db.doc(`schedules/${p.newSchedule}`);
+      const same = p.oldSchedule === p.newSchedule;
+      const [osnap, nsnap] = same ? [await tx.get(oref)] : await Promise.all([tx.get(oref), tx.get(nref)]);
+      const ncells = (same ? osnap : nsnap).exists ? (same ? osnap : nsnap).data().cells || {} : {};
+      if (p.newKeys.some((k) => ncells[k] !== undefined && ncells[k] !== id)) throw new HttpsError('aborted', 'SLOT_TAKEN');
+      const mine = Object.fromEntries(p.newKeys.map((k) => [k, id])), gone = Object.fromEntries(p.oldKeys.filter((k) => !p.newKeys.includes(k) || !same).map((k) => [k, FieldValue.delete()]));
+      if (same) tx.set(oref, { cells: { ...gone, ...mine } }, { merge: true });
+      else { tx.set(oref, { cells: gone }, { merge: true }); tx.set(nref, { cells: mine }, { merge: true }); }
+      tx.update(bref, p.patch);
+      tx.set(bref.collection('events').doc('rs-' + now), { by: call.auth.uid, action: 'reschedule', from: booking.start, to: p.start, at: now });
+      return { start: p.start, end: p.end };
+    });
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    if (e && e.code && /^(invalid-argument|failed-precondition|permission-denied|not-found)$/.test(e.code)) throw new HttpsError(e.code, e.message);
+    console.error('rescheduleBooking', e); throw new HttpsError('internal', 'INTERNAL');
   }
 });
