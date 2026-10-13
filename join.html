@@ -1,0 +1,65 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>انضمام صالون — موعد أنوثة</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBF5F7;--card:#fff;--ink:#2A1722;--mute:#7A6571;--line:#EBDCE3;--ac:#B83A6B;--soft:#F8E3EC;--ok:#1E8E5A;--bad:#C0392B;padding-top:env(safe-area-inset-top,0px)}
+@media(prefers-color-scheme:dark){:root{--bg:#1A1017;--card:#26171F;--ink:#F6E9EF;--mute:#B79DAA;--line:#3A2630;--ac:#E26C9A;--soft:#3A2230;--ok:#4CC38A;--bad:#F0776A}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:400 14px Cairo,Tahoma,Arial,sans-serif}
+main{max-width:640px;margin:auto;padding:16px}h1{font-size:20px;font-weight:800;color:var(--ac);margin:8px 0 4px}h2{font-size:15px;margin:20px 0 4px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0}.m{color:var(--mute);font-size:12.5px}
+label{display:block;margin:12px 0 4px;font-weight:600}input,select,textarea{width:100%;min-height:44px;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--bg);color:var(--ink);font:400 14px Cairo,Tahoma,sans-serif}
+textarea{min-height:88px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:520px){.g2{grid-template-columns:1fr}}
+.chk{display:flex;gap:10px;align-items:flex-start;font-weight:400}.chk input{width:22px;min-height:22px;margin-top:2px;accent-color:var(--ac)}
+button{min-height:44px;width:100%;margin-top:16px;border:0;border-radius:12px;background:var(--ac);color:#fff;font:700 15px Cairo,Tahoma,sans-serif;cursor:pointer}button:disabled{opacity:.5}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+.bad{color:var(--bad)}.ok{color:var(--ok)}.d{display:grid;grid-template-columns:70px 1fr 1fr 64px;gap:6px;align-items:center;margin:6px 0}.d input[type=checkbox]{width:20px;min-height:20px}
+</style></head><body><main id="app"><h1>انضمام صالون أو عيادة تجميل</h1><div class="m">املئي الطلب، وتتواصل معك الإدارة بمكالمة صوتية ثم مكالمة فيديو للتحقق قبل الموافقة.</div><div class="card">جارٍ التحميل...</div></main>
+<script type="module">
+import { configured, auth, db } from './js/fb.js';
+const app = document.getElementById('app'), $ = (i) => document.getElementById(i);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const latin = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+if (!configured) { app.innerHTML += '<div class="card">الموقع قيد الإعداد.</div>'; throw 0; }
+const A = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
+const F = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+let gov = [], areas = [];
+try {
+  await auth.authStateReady?.(); if (!auth.currentUser) await A.signInAnonymously(auth);
+  const [g, a] = await Promise.all([F.getDocs(F.collection(db, 'governorates')), F.getDocs(F.collection(db, 'areas'))]);
+  gov = g.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order); areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
+} catch (e) { app.innerHTML += '<div class="card bad">تعذر التحميل. أعيدي المحاولة لاحقًا.</div>'; throw 0; }
+const DAYS = [[6, 'السبت'], [0, 'الأحد'], [1, 'الاثنين'], [2, 'الثلاثاء'], [3, 'الأربعاء'], [4, 'الخميس'], [5, 'الجمعة']];
+app.innerHTML = `<h1>انضمام صالون أو عيادة تجميل</h1><div class="m">املئي الطلب، وتتواصل معك الإدارة بمكالمة صوتية ثم مكالمة فيديو للتحقق قبل الموافقة.</div>
+<form id="f" class="card"><h2>بياناتك</h2>
+<label for="on">اسمك (ثلاثي)</label><input id="on" autocomplete="name" required>
+<label for="ph">رقم هاتفك (للتواصل والتحقق، لا يظهر للزبونات)</label><input id="ph" dir="ltr" inputmode="numeric" placeholder="07XXXXXXXXX" autocomplete="tel" required>
+<h2>الصالون</h2>
+<label for="sn">اسم الصالون</label><input id="sn" required>
+<label for="ty">نوع النشاط</label><select id="ty"><option value="salon">صالون نسائي</option><option value="clinic">عيادة تجميل</option><option value="both">الاثنان</option></select>
+<div class="g2"><div><label for="gv">المحافظة</label><select id="gv" required><option value="">اختاري</option>${gov.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></div>
+<div><label for="ar">المنطقة</label><select id="ar" required><option value="">اختاري المحافظة أولًا</option></select></div></div>
+<label for="ad">العنوان التفصيلي وأقرب نقطة دالة</label><textarea id="ad" required></textarea>
+<div class="g2"><div><label for="wa">واتساب الصالون (يظهر للزبونات)</label><input id="wa" dir="ltr" inputmode="numeric" required></div><div><label for="w2">رقم ثانٍ (اختياري)</label><input id="w2" dir="ltr" inputmode="numeric"></div></div>
+<label for="sc">عدد الموظفات</label><input id="sc" type="number" min="1" max="50" value="1" inputmode="numeric" required>
+<h2>ساعات الدوام</h2>${DAYS.map(([k, n]) => `<div class="d"><span>${n}</span><input type="time" id="o${k}" value="10:00" aria-label="فتح ${n}"><input type="time" id="c${k}" value="20:00" aria-label="إغلاق ${n}"><label style="margin:0;font-weight:400"><input type="checkbox" id="x${k}" ${k === 5 ? 'checked' : ''}> عطلة</label></div>`).join('')}
+<h2>الخدمات الرئيسية</h2><label for="sv">اكتبي كل خدمة بسطر: الاسم، السعر التقريبي، المدة (مثال: قص شعر، 15000، 45 دقيقة). تعدّلينها لاحقًا.</label><textarea id="sv" required></textarea>
+<h2>التواصل الاجتماعي (اختياري)</h2><div class="g2"><div><label for="ig">إنستغرام</label><input id="ig" dir="ltr"></div><div><label for="fb">فيسبوك</label><input id="fb" dir="ltr"></div></div><label for="tk">تيك توك</label><input id="tk" dir="ltr">
+<label class="chk" style="margin-top:18px"><input type="checkbox" id="tm" required><span>أوافق على شروط الاستخدام وعقد المنصة (الاستقطاع والرسوم ومسؤولية كل طرف).</span></label>
+<div id="er" class="m" role="status" aria-live="polite"></div><button id="go">إرسال الطلب</button>
+<div class="m" style="margin-top:12px">صور الصالون ووثيقة التحقق تُطلب منك أثناء مكالمة الفيديو، ولا ترفعينها هنا.</div></form>`;
+$('gv').onchange = (e) => { $('ar').innerHTML = '<option value="">اختاري</option>' + areas.filter((x) => x.governorateId === e.target.value).map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join(''); };
+$('f').onsubmit = async (ev) => {
+  ev.preventDefault(); const er = (t) => { $('er').className = 'm bad'; $('er').textContent = t; };
+  const on = $('on').value.trim().replace(/\s+/g, ' '), ph = latin($('ph').value.trim()), wa = latin($('wa').value.trim()), w2 = latin($('w2').value.trim()), re = /^07[3-9]\d{8}$/, hours = {};
+  if (on.split(' ').length < 3) return er('اكتبي اسمك الثلاثي.'); if (!re.test(ph)) return er('رقم هاتفك غير صحيح (مثال: 07701234567).');
+  if (!re.test(wa)) return er('رقم واتساب الصالون غير صحيح.'); if (w2 && !re.test(w2)) return er('الرقم الثاني غير صحيح.');
+  for (const [k, n] of DAYS) { const o = $('o' + k).value, c = $('c' + k).value, off = $('x' + k).checked; if (!off && !(o && c && o < c)) return er(`ساعات ${n}: الإغلاق لازم يكون بعد الفتح.`); hours[k] = { open: o, close: c, off }; }
+  $('go').disabled = true; er('جارٍ الإرسال...');
+  const doc = { ownerName: on, ownerPhone: ph, salonName: $('sn').value.trim(), activityType: $('ty').value, governorateId: $('gv').value, areaId: $('ar').value, address: $('ad').value.trim(),
+    whatsapp: wa, whatsapp2: w2 || null, staffCount: Number($('sc').value), hours, servicesText: $('sv').value.trim(), social: { instagram: $('ig').value.trim(), facebook: $('fb').value.trim(), tiktok: $('tk').value.trim() },
+    termsAccepted: true, termsVersion: 'draft-1', status: 'pending', calls: { voice: { status: 'none' }, video: { status: 'none' } }, uid: auth.currentUser.uid, createdAt: Date.now() };
+  try { await F.addDoc(F.collection(db, 'applications'), doc);
+    app.innerHTML = '<h1>وصل طلبك ✓</h1><div class="card"><b>شكرًا ' + esc(on.split(' ')[0]) + '.</b><div class="m" style="margin-top:8px">راح تتصل بك الإدارة على الرقم ' + esc(ph) + ' لمكالمة صوتية ثم مكالمة فيديو للتحقق. بعدها نبلغك بالقرار.</div></div>';
+  } catch (e) { $('go').disabled = false; er(e.code === 'permission-denied' ? 'تعذر إرسال الطلب حاليًا. حاولي لاحقًا.' : 'تعذر الإرسال. أعيدي المحاولة.'); }
+};
+</script></body></html>
