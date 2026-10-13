@@ -4,6 +4,7 @@ const { initializeApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const crypto = require('node:crypto');
 const { planBooking } = require('./plan.js');
+const { planCoupon, normCode } = require('./coupon.js');
 const { planClose } = require('./period.js');
 const { planReschedule } = require('./reschedule.js');
 const { planAcceptMove } = require('./acceptmove.js');
@@ -30,10 +31,26 @@ exports.createBooking = onCall({ region: 'europe-west1', maxInstances: 20 }, asy
       if (keys.some((k) => cells[k] !== undefined)) throw new HttpsError('aborted', 'SLOT_TAKEN');
       const act = await tx.get(db.collection('bookings').where('customerPhone', '==', booking.customerPhone).where('status', '==', 'confirmed').where('start', '>', now).limit(MAX_ACTIVE_PER_PHONE));
       if (act.size >= MAX_ACTIVE_PER_PHONE) throw new HttpsError('resource-exhausted', 'TOO_MANY_ACTIVE');
+      // الكوبون (اختياري): كل القراءات هنا قبل أي كتابة. الخصم تتحمله الصالون (من servicesTotal فقط)، ويُسجَّل استعمال واحد لكل هاتف بوثيقة uses/{phone} في نفس العملية.
+      const couponCode = typeof d.couponCode === 'string' && d.couponCode.trim() ? normCode(d.couponCode) : '', cref = couponCode && /^[A-Z0-9]{4,16}$/.test(couponCode) ? db.doc(`salons/${salonId}/coupons/${couponCode}`) : null;
+      let usedRef = null;
+      if (couponCode) {
+        if (!cref) throw new HttpsError('failed-precondition', 'COUPON_INVALID');
+        usedRef = cref.collection('uses').doc(booking.customerPhone);
+        const [cs, us] = await Promise.all([tx.get(cref), tx.get(usedRef)]), c = cs.exists ? cs.data() : null;
+        let hasPrior = false;
+        if (c && c.firstOnly === true) {
+          const prev = await tx.get(db.collection('bookings').where('customerPhone', '==', booking.customerPhone).where('salonId', '==', salonId).limit(20));
+          hasPrior = prev.docs.some((x) => x.data().status !== 'cancelled');
+        }
+        const r = planCoupon({ coupon: c, code: couponCode, servicesTotal: booking.servicesTotal, now, usedByPhone: us.exists, hasPrior });
+        booking.discount = r.discount; booking.couponId = r.couponId;
+      }
       const code = String(crypto.randomInt(1000, 10000));
       tx.set(bref, booking); tx.set(bref.collection('private').doc('code'), { code });
+      if (usedRef) { tx.update(cref, { used: FieldValue.increment(1) }); tx.set(usedRef, { at: now, bookingId: key }); }
       tx.set(sref, { cells: Object.fromEntries(keys.map((k) => [k, key])) }, { merge: true });
-      return { id: key, code };
+      return { id: key, code, discount: booking.discount };
     });
   } catch (e) {
     if (e instanceof HttpsError) throw e;

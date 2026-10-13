@@ -1,6 +1,7 @@
 // ===== نسخة مشدّدة: لا تُنشر إلا بعد نشر الدوال الأربع (createBooking وclosePeriod وrescheduleBooking وacceptMove) وتفعيل useServerBooking وuseServerClose وuseServerReschedule وuseServerMove وتجربتها =====
 rules_version = '2';
 // وضع Spark (بدون Cloud Functions): القواعد هي الحماية الوحيدة. لم تُختبر على محاكي Firestore بعد.
+// [جديد] التقييمات والكوبونات (match /reviews و/coupons تحت الصالون): الكوبونات تحتاج useServerBooking لأن الخصم يحسبه createBooking فقط.
 // التعديلات عن النسخة السابقة موسومة بـ [جديد]. هذه النسخة: رسوم خاصة بكل صالون + بنود اقتراح نقل الموعد من الصالون
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -147,6 +148,41 @@ service cloud.firestore {
                         && request.resource.data.decidedBy == request.auth.uid;
           allow delete: if false;
         }
+      }
+      // [جديد] تقييمات الزبونات: تقييم واحد لكل حجز مكتمل (معرّف التقييم = معرّف الحجز، فالتكرار يصير update ويُرفض) خلال ٣٠ يومًا من الإكمال.
+      // القراءة عامة (الصفحة العامة تحسب الوسط بالتجميع). لا تعديل ولا حذف من الزبونة ولا الصالون؛ الإدارة وحدها تخفي تقييمًا مسيئًا (hidden=true وتمسح التعليق).
+      match /reviews/{rid} {
+        function rb() { return get(/databases/$(database)/documents/bookings/$(rid)).data; }
+        allow read: if true;
+        allow create: if signedIn() && rb().customerUid == request.auth.uid && rb().salonId == sid && rb().source == 'online' && rb().status == 'completed'
+                      && rb().completedAt is int && nowMs() <= rb().completedAt + 2592000000
+                      && request.resource.data.keys().hasOnly(['rating', 'comment', 'name', 'at', 'hidden'])
+                      && request.resource.data.rating is int && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+                      && request.resource.data.hidden == false
+                      && request.resource.data.name is string && request.resource.data.name.size() >= 1 && request.resource.data.name.size() <= 40
+                      && request.resource.data.at is int && request.resource.data.at <= nowMs() + 60000 && request.resource.data.at >= nowMs() - 600000
+                      && (!('comment' in request.resource.data) || (request.resource.data.comment is string && request.resource.data.comment.size() <= 300));
+        allow update: if isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hidden', 'comment']) && request.resource.data.hidden is bool;
+        allow delete: if false;
+      }
+      // [جديد] الكوبونات والعروض (معرّف الوثيقة = الكود بحروف كبيرة). الصالون هي التي تتحمل الخصم؛ الخصم الفعلي يحسبه createBooking من السيرفر ولا يثق بالعميل.
+      // get: أي جلسة مسجّلة (معاينة الزبونة بالكود). list: صاحبة الصالون والأدمن، وللزبونات الكوبونات العلنية الفعّالة فقط (عروض الصفحة).
+      // العدّاد used وسجل الاستعمال uses/{phone} يكتبهما السيرفر فقط: الصاحبة تنشئ بـ used=0، ولا تعدّل إلا active وpublic.
+      match /coupons/{code} {
+        function cv() { return request.resource.data; }
+        allow get: if signedIn();
+        allow list: if isAdmin() || isOwner(sid) || (resource.data.public == true && resource.data.active == true);
+        allow create: if isOwner(sid) && code.matches('^[A-Z0-9]{4,16}$')
+                      && cv().keys().hasOnly(['code', 'type', 'value', 'maxUses', 'used', 'expiresAt', 'firstOnly', 'public', 'active', 'createdAt', 'label'])
+                      && cv().code == code && cv().type in ['percent', 'fixed'] && cv().value is int && cv().value > 0
+                      && (cv().type == 'percent' ? cv().value <= 90 : cv().value <= 10000000)
+                      && cv().maxUses is int && cv().maxUses >= 1 && cv().maxUses <= 100000 && cv().used == 0
+                      && cv().expiresAt is int && cv().expiresAt > nowMs() && cv().expiresAt <= nowMs() + 7862400000
+                      && cv().firstOnly is bool && cv().public is bool && cv().active == true && cv().createdAt is int
+                      && (!('label' in cv()) || (cv().label is string && cv().label.size() <= 60));
+        allow update: if isOwner(sid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['active', 'public'])
+                      && request.resource.data.active is bool && request.resource.data.public is bool;
+        allow delete: if isOwner(sid) || isAdmin();
       }
       match /services/{id} { allow read: if true; allow write: if isAdmin() || isOwner(sid); }
       match /staff/{id} {

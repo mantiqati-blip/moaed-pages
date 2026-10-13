@@ -45,6 +45,8 @@ import { toXLSX, downloadX, bookingColumns, dateOf } from './js/export.js';
 import qrcode from './js/qr.js';
 import { errText } from './js/strings.js';
 import { startNotifier } from './js/notify.js';
+import { validateCoupon, buildCoupon, couponState, describe, genCode, normCode, LABEL_MAX } from './js/coupons.js';
+import { summarize as summarizeReviews, stars } from './js/reviews.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const latin = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
@@ -60,9 +62,9 @@ $('me').textContent = me.name || ''; $('out').hidden = false; $('out').onclick =
 const sid = me.salonId, sref = F.doc(db, 'salons', sid);
 const salon = (await F.getDoc(sref)).data() || {}; $('sn').textContent = salon.name || 'لوحة الصالون';
 const note = salon.status === 'active' ? '' : '<div class="row bad">صالونك موقوف حاليًا ولا يظهر للزبونات. تواصلي مع الإدارة.</div>';
-app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button><button id="t5">الحسابات</button><button id="t6">حجز يدوي</button><button id="t7">رابط وQR</button><button id="t8">الرسائل</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings, accounts, manual, linkQr, messages][n - 1](); };
-[1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button><button id="t5">الحسابات</button><button id="t6">حجز يدوي</button><button id="t7">رابط وQR</button><button id="t8">الرسائل</button><button id="t9">العروض والتقييمات</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings, accounts, manual, linkQr, messages, offers][n - 1](); };
+[1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((i) => $('t' + i).onclick = () => tab(i));
 const msgEl = () => $('msg'), say = (t, c = '') => { msgEl().className = 'm ' + c; msgEl().textContent = t; };
 function linkQr() {
   const url = new URL('./?salon=' + encodeURIComponent(sid), location.href).href, q = qrcode(0, 'M'); q.addData(url); q.make();
@@ -148,7 +150,7 @@ async function bookings() {
       }
       if (b.status === 'cancel_requested') a.push(`<div class="m" style="width:100%">سبب الزبونة: ${esc(b.cancelReason)}</div><button data-a="ok" data-id="${esc(b.id)}">موافقة (تُحال للإدارة)</button><button data-a="no" data-id="${esc(b.id)}">رفض الإلغاء</button>`);
       return `<div class="row"><div class="s"><b>${hm(b.start)} — ${esc(b.customerName || (b.source === 'blocked' ? 'وقت مغلق' : '—'))}</b><span class="tag ${b.status === 'confirmed' ? '' : 'off'}">${ST[b.status] || esc(b.status)}</span></div>
-      <div class="m">${esc((b.services || []).map((x) => x.name).join('، '))} · ${esc(names[b.staffId] || '')}${b.source === 'online' ? '' : ' · يدوي'}</div><div class="m" dir="ltr" style="text-align:right">${esc(b.customerPhone || '')}</div>
+      <div class="m">${esc((b.services || []).map((x) => x.name).join('، '))} · ${esc(names[b.staffId] || '')}${b.source === 'online' ? '' : ' · يدوي'}${b.discount ? ` · <b>المطلوب من الزبونة ${money(b.servicesTotal - b.discount)}</b> (خصم كوبون ${esc(b.couponId || '')}: ${money(b.discount)})` : ''}</div><div class="m" dir="ltr" style="text-align:right">${esc(b.customerPhone || '')}</div>
       ${a.length ? `<div class="s" style="justify-content:flex-start;margin-top:8px">${a.join('')}</div>` : ''}</div>`;
     }).join('') : '<div class="row">لا توجد حجوزات.</div>') + '<button id="ex" style="width:100%">تصدير كل حجوزات الصالون (Excel)</button><div id="msg" class="m" role="status"></div>';
   v.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { bf = b.dataset.f; bookings(); });
@@ -251,6 +253,43 @@ async function messages() {
       } catch (e) { if (ev.submitter) ev.submitter.disabled = false; sm.className = 'm bad'; sm.textContent = 'تعذر الإرسال: ' + errText(e); }
     };
   } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الرسائل: ' + esc(e.code) + '</div>'; }
+}
+async function offers() {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+  const ccol = F.collection(db, 'salons', sid, 'coupons'), rcol = F.collection(db, 'salons', sid, 'reviews'); let sets, C, RV, ag = null;
+  try {
+    [sets, C, RV] = await Promise.all([F.getDoc(F.doc(db, 'platform', 'settings')).then((d) => d.data() || {}), F.getDocs(ccol), F.getDocs(F.query(rcol, F.orderBy('at', 'desc'), F.limit(30)))]);
+    ag = await F.getAggregateFromServer(F.query(rcol, F.where('hidden', '==', false)), { n: F.count(), avg: F.average('rating') }).then((r) => r.data()).catch(() => null);
+  } catch (e) { v.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(e.code) + '</div>'; return; }
+  const now = Date.now(), dt = (t) => new Date(t + 3 * 36e5).toISOString().slice(0, 10), L = C.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt);
+  const R = RV.docs.map((d) => d.data()).filter((x) => !x.hidden), S = ag ? { count: ag.n, avg: Math.round((ag.avg || 0) * 10) / 10, show: ag.n >= 3 } : summarizeReviews(R);
+  const TAG = { live: 'فعّال', off: 'موقوف', expired: 'منتهٍ', used_up: 'استُنفد' };
+  v.innerHTML = `${sets.useServerBooking ? '' : '<div class="row bad">الكوبونات تعمل عندما تفعّل الإدارة «الحجز من السيرفر». يمكنك تجهيزها الآن، لكنها لن تظهر للزبونات قبل ذلك.</div>'}
+    <div class="row"><b>الكوبونات والعروض</b><div class="m">الخصم يُحسم من إيراد خدماتك فقط، ولا يغيّر رسم الخدمة ولا الاستقطاع للمنصة. الزبونة تدفع لك المبلغ بعد الخصم، وتشوفينه بصفحة الحجوزات.</div></div>
+    ${L.length ? L.map((c) => { const st = couponState(c, now); return `<div class="row"><div class="s"><div><b dir="ltr">${esc(c.id)}</b> <span class="tag ${st === 'live' ? '' : 'off'}">${TAG[st]}</span>${c.public ? ' <span class="tag">عرض ظاهر بصفحتك</span>' : ''}${c.firstOnly ? ' <span class="tag">لأول حجز</span>' : ''}
+      <div class="m">${esc(c.label ? c.label + ' · ' : '')}${esc(describe(c))} · استُعمل ${c.used} من ${c.maxUses} · حتى ${dt(c.expiresAt)}</div></div>
+      <div class="s" style="gap:6px"><button data-ca="${esc(c.id)}" data-v="${c.active ? 0 : 1}">${c.active ? 'إيقاف' : 'تفعيل'}</button><button data-cp="${esc(c.id)}" data-v="${c.public ? 0 : 1}">${c.public ? 'إخفاء من الصفحة' : 'إظهار كعرض'}</button></div></div></div>`; }).join('') : '<div class="row">لا توجد كوبونات بعد. أنشئي أول كوبون، وأفضل بداية: خصم لأول حجز.</div>'}
+    <form id="f" class="row"><b>كوبون جديد</b>
+      <div class="g3"><div><label for="cc">الكود</label><input id="cc" dir="ltr" maxlength="16" autocapitalize="characters" required></div><div><label for="ct">النوع</label><select id="ct"><option value="percent">نسبة ٪</option><option value="fixed">مبلغ ثابت (دينار)</option></select></div><div><label for="cv">القيمة</label><input id="cv" inputmode="numeric" dir="ltr" required></div></div>
+      <div class="g3"><div><label for="cm2">عدد مرات الاستعمال</label><input id="cm2" inputmode="numeric" dir="ltr" value="50"></div><div><label for="cd">الصلاحية</label><select id="cd">${[[7, 'أسبوع'], [14, 'أسبوعان'], [30, 'شهر'], [60, 'شهران'], [90, '٣ أشهر']].map(([d, n]) => `<option value="${d}" ${d === 30 ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div><label for="cl">وصف قصير (اختياري)</label><input id="cl" maxlength="${LABEL_MAX}" placeholder="مثال: خصم الافتتاح"></div></div>
+      <label style="font-weight:400"><input type="checkbox" id="cf" style="width:20px"> لأول حجز بهذا الصالون فقط</label>
+      <label style="font-weight:400"><input type="checkbox" id="cu" style="width:20px" checked> أظهريه كعرض بصفحة الصالون (وإلا يبقى سريًا لمن تعطينه الكود)</label>
+      <div class="m">كل رقم هاتف يستعمل الكود مرة واحدة. النسبة تُقرَّب لأسفل لأقرب ٢٥٠ دينار.</div><div id="msg" class="m" role="status"></div><div class="s" style="justify-content:flex-start"><button class="p">حفظ الكوبون</button><button type="button" id="gen">توليد كود</button></div></form>
+    <div class="row"><b>التقييمات</b> ${S.show ? `<span class="star" style="color:#e0a31b">${stars(S.avg)}</span> <b>${S.avg}</b> <span class="m">(${S.count})</span>` : `<span class="m">${S.count ? S.count + ' تقييم (يظهر المعدل بعد ٣ تقييمات)' : 'لا توجد تقييمات بعد'}</span>`}
+      ${R.length ? R.map((x) => `<div style="padding:8px 0;border-top:1px solid var(--line)"><div class="s"><b>${esc(x.name)}</b><span style="color:#e0a31b" role="img" aria-label="${x.rating} من 5">${stars(x.rating)}</span></div>${x.comment ? `<div style="white-space:pre-wrap">${esc(x.comment)}</div>` : ''}<div class="m">${dt(x.at)}</div></div>`).join('') : ''}
+      <div class="m" style="margin-top:8px">التقييم يكتبه من الزبونة بعد إكمال الخدمة بالرمز فقط. لا يمكنك تعديله أو حذفه؛ إن وجدتِ تقييمًا مسيئًا راسلي الإدارة من تبويب الرسائل.</div></div>`;
+  $('gen').onclick = () => { $('cc').value = genCode(); };
+  const flip = (attr, key) => v.querySelectorAll(`button[${attr}]`).forEach((b) => b.onclick = async () => { b.disabled = true; try { await F.updateDoc(F.doc(ccol, b.getAttribute(attr)), { [key]: b.dataset.v === '1' }); offers(); } catch (e) { b.disabled = false; alert('تعذر التحديث: ' + errText(e)); } });
+  flip('data-ca', 'active'); flip('data-cp', 'public');
+  $('f').onsubmit = async (ev) => {
+    ev.preventDefault(); const code = normCode($('cc').value), n = (x) => Number(latin(String(x).replace(/[,،\s]/g, ''))), type = $('ct').value;
+    const inp = { code, type, value: n($('cv').value), maxUses: n($('cm2').value), days: Number($('cd').value), label: $('cl').value };
+    const bad = validateCoupon(inp); if (bad) return say(bad, 'bad'); ev.submitter && (ev.submitter.disabled = true);
+    try {
+      if ((await F.getDoc(F.doc(ccol, code))).exists()) { if (ev.submitter) ev.submitter.disabled = false; return say('هذا الكود موجود مسبقًا. اختاري غيره.', 'bad'); }
+      await F.setDoc(F.doc(ccol, code), buildCoupon({ ...inp, firstOnly: $('cf').checked, isPublic: $('cu').checked, now: Date.now() })); offers();
+    } catch (e) { if (ev.submitter) ev.submitter.disabled = false; say('تعذر الحفظ: ' + errText(e), 'bad'); }
+  };
 }
 async function manual() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>'; let sets, SV, ST;

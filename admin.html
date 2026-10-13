@@ -59,9 +59,9 @@ let gov = [], areas = [];
 const [g, a] = await Promise.all([F.getDocs(F.collection(db, 'governorates')), F.getDocs(F.collection(db, 'areas'))]);
 gov = g.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
 areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
-app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button><button id="t7">طلبات الانضمام</button><button id="t8">الرسوم</button><button id="t9">الرسائل</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings, appsTab, feesTab, supportTab][n - 1](); };
-[1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button><button id="t7">طلبات الانضمام</button><button id="t8">الرسوم</button><button id="t9">الرسائل</button><button id="t10">التقييمات</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings, appsTab, feesTab, supportTab, reviewsTab][n - 1](); };
+[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].forEach((i) => $('t' + i).onclick = () => tab(i));
 // نسخة عامة بدون بيانات خاصة (لا هاتف ولا حساب) تعرضها الصفحة الرئيسية. فشلها لا يمنع العملية الأصلية.
 const pubSync = (x, st) => F.setDoc(F.doc(db, 'publicSalons', x.id || x.slug), { name: x.name, slug: x.slug || x.id, governorateId: x.governorateId || '', areaId: x.areaId || '', status: st || x.status }).catch(() => {});
 async function list() {
@@ -346,6 +346,27 @@ async function appsTab() {
       finally { if (sApp) App.deleteApp(sApp).catch(() => {}); }
     };
   });
+}
+// إشراف على التقييمات: اختيار صالون ثم إخفاء تقييم مسيء (hidden=true ويُمسح التعليق). لا حذف، فلا تعيد الزبونة التقييم على نفس الحجز.
+async function reviewsTab() {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+  let S; try { S = (await F.getDocs(F.collection(db, 'salons'))).docs.map((d) => ({ id: d.id, name: d.data().name || d.id })); } catch (e) { v.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(e.code) + '</div>'; return; }
+  if (!S.length) { v.innerHTML = '<div class="row">لا توجد صالونات.</div>'; return; }
+  v.innerHTML = `<div class="row"><label for="rs">الصالون</label><select id="rs">${S.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></div><div id="rv"></div>`;
+  const dt = (t) => new Date(t + 3 * 36e5).toISOString().slice(0, 10);
+  const show = async () => {
+    const sid = $('rs').value, box = $('rv'); box.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+    try {
+      const L = (await F.getDocs(F.query(F.collection(db, 'salons', sid, 'reviews'), F.orderBy('at', 'desc'), F.limit(50)))).docs.map((d) => ({ id: d.id, ...d.data() }));
+      box.innerHTML = L.length ? L.map((x) => `<div class="row"><div class="s"><div><b>${esc(x.name)}</b> <span class="m">${'★'.repeat(x.rating)}${'☆'.repeat(5 - x.rating)} · ${dt(x.at)}</span>${x.hidden ? ' <span class="tag off">مخفي</span>' : ''}</div>${x.hidden ? '' : `<button data-h="${esc(x.id)}">إخفاء</button>`}</div>${x.comment ? `<div style="white-space:pre-wrap">${esc(x.comment)}</div>` : ''}</div>`).join('') : '<div class="row">لا توجد تقييمات لهذا الصالون.</div>';
+      box.querySelectorAll('button[data-h]').forEach((b) => b.onclick = async () => {
+        if (!confirm('إخفاء هذا التقييم؟ يُمسح تعليقه ولا يُحسب بالمعدل، ولا يمكن التراجع.')) return; b.disabled = true;
+        try { await F.updateDoc(F.doc(db, 'salons', sid, 'reviews', b.dataset.h), { hidden: true, comment: F.deleteField() }); await audit('review.hide', sid + '/' + b.dataset.h).catch(() => {}); show(); }
+        catch (e) { b.disabled = false; alert('تعذر الإخفاء: ' + errText(e)); }
+      });
+    } catch (e) { box.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(e.code) + '</div>'; }
+  };
+  $('rs').onchange = show; show();
 }
 async function feesTab() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>'; let set, L;

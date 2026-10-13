@@ -4,7 +4,7 @@ const DEL = { __del: true }, store = new Map();
 class HttpsError extends Error { constructor(code, message) { super(message); this.code = code; } }
 const clone = (x) => JSON.parse(JSON.stringify(x));
 function mergeInto(t, p) { for (const [k, v] of Object.entries(p)) { if (v === DEL) delete t[k]; else if (v && typeof v === 'object') { t[k] = t[k] && typeof t[k] === 'object' ? t[k] : {}; mergeInto(t[k], v); } else t[k] = v; } return t; }
-function setDotted(t, key, v) { const ps = key.split('.'); let o = t; ps.slice(0, -1).forEach((p) => { o[p] = o[p] || {}; o = o[p]; }); if (v === DEL) delete o[ps.at(-1)]; else o[ps.at(-1)] = v; }
+function setDotted(t, key, v) { const ps = key.split('.'); let o = t; ps.slice(0, -1).forEach((p) => { o[p] = o[p] || {}; o = o[p]; }); if (v === DEL) delete o[ps.at(-1)]; else if (v && v.__inc !== undefined) o[ps.at(-1)] = (o[ps.at(-1)] || 0) + v.__inc; else o[ps.at(-1)] = v; }
 const snap = (path) => ({ exists: store.has(path), id: path.split('/').pop(), data: () => clone(store.get(path)) });
 const ref = (path) => ({ path, collection: (n) => colRef(`${path}/${n}`), get: async () => snap(path) });
 const colRef = (path) => { const f = []; const q = { path, doc: (id) => ref(`${path}/${id ?? 'auto' + store.size}`), where(k, o, v) { f.push([k, o, v]); return q; }, limit() { return q; }, _run() { const docs = [...store.keys()].filter((p) => p.startsWith(path + '/') && !p.slice(path.length + 1).includes('/')).filter((p) => f.every(([k, o, v]) => { const x = store.get(p)[k]; return o === '==' ? x === v : o === '>' ? x > v : true; })).map((p) => snap(p)); return { docs, size: docs.length }; } }; return q; };
@@ -24,7 +24,7 @@ const orig = Module._load;
 Module._load = function (req, ...a) {
   if (req === 'firebase-functions/v2/https') return { onCall: (_o, h) => h, HttpsError };
   if (req === 'firebase-admin/app') return { initializeApp() {} };
-  if (req === 'firebase-admin/firestore') return { getFirestore: () => fakeDb, FieldValue: { delete: () => DEL } };
+  if (req === 'firebase-admin/firestore') return { getFirestore: () => fakeDb, FieldValue: { delete: () => DEL, increment: (n) => ({ __inc: n }) } };
   return orig.call(this, req, ...a);
 };
 const fns = require('./index.js'), { toEpoch } = require('./plan.js');
@@ -116,4 +116,37 @@ test('closePeriod: الفترة الثانية لا تعدّ القديم مرة
   done('b', Date.now() - 1, { customerFee: 500, salonCut: 500 }); store.set('salons/sal/payments/p2', { amount: 1000, by: 'adm', at: Date.now() - 1 });
   const second = await fns.closePeriod({ ...auth('adm'), data: { salonId: 'sal' } });
   assert.deepEqual([second.count, second.due, second.from], [1, 1000, first.closedAt]); assert.equal(periods().length, 2);
+});
+
+// ---- كوبونات الحجز ----
+const cdata = (o = {}) => ({ idempotencyKey: ID, salonId: 'sal', staffId: 's1', serviceIds: ['v1'], date: day(3), startMin: 720, customerName: 'سارة أحمد', customerPhone: '07701234567', couponCode: 'welcome', ...o });
+const coupon = (o = {}) => store.set('salons/sal/coupons/WELCOME', { type: 'percent', value: 20, maxUses: 2, used: 0, expiresAt: now + 864e5, firstOnly: false, active: true, public: true, ...o });
+test('createBooking + كوبون: يحسب الخصم من السيرفر ويزيد العدّاد ويسجل استعمال الهاتف', async () => {
+  reset(); coupon();
+  const r = await fns.createBooking({ ...auth('u1'), data: cdata() });
+  const b = store.get(`bookings/${ID}`); assert.equal(r.discount, 2000); assert.equal(b.discount, 2000); assert.equal(b.couponId, 'WELCOME'); assert.equal(b.servicesTotal, 10000);
+  assert.equal(b.customerFee, 1000); assert.equal(b.salonCut, 500);                                  // الرسم والاستقطاع لا يتأثران بالخصم
+  assert.equal(store.get('salons/sal/coupons/WELCOME').used, 1); assert.equal(store.get('salons/sal/coupons/WELCOME/uses/07701234567').bookingId, ID);
+});
+test('createBooking + كوبون: نفس الهاتف لا يستعمله مرتين، وفشله لا يترك أي كتابة', async () => {
+  reset(); coupon(); await fns.createBooking({ ...auth('u1'), data: cdata() });
+  await fails(fns.createBooking({ ...auth('u2'), data: cdata({ idempotencyKey: ID2, startMin: 900 }) }), 'failed-precondition', 'COUPON_ALREADY_USED');
+  assert.equal(store.has(`bookings/${ID2}`), false); assert.equal(store.get('salons/sal/coupons/WELCOME').used, 1); assert.equal(store.has(`schedules/s1_${day(3)}`) && Object.keys(store.get(`schedules/s1_${day(3)}`).cells).length, 4);
+});
+test('createBooking + كوبون: منتهٍ، مستنفد، غير موجود، رمز بصيغة خاطئة', async () => {
+  reset(); coupon({ expiresAt: now - 1 }); await fails(fns.createBooking({ ...auth('u1'), data: cdata() }), 'failed-precondition', 'COUPON_EXPIRED');
+  coupon({ used: 2 }); await fails(fns.createBooking({ ...auth('u1'), data: cdata() }), 'failed-precondition', 'COUPON_USED_UP');
+  await fails(fns.createBooking({ ...auth('u1'), data: cdata({ couponCode: 'NOPE99' }) }), 'failed-precondition', 'COUPON_INVALID');
+  await fails(fns.createBooking({ ...auth('u1'), data: cdata({ couponCode: 'a b!' }) }), 'failed-precondition', 'COUPON_INVALID');
+  assert.equal(store.has(`bookings/${ID}`), false);
+});
+test('createBooking + كوبون لأول حجز: يرفض من عندها حجز سابق بالصالون ولا يحتسب الملغي', async () => {
+  reset(); coupon({ firstOnly: true }); put(ID2, { status: 'completed' });
+  await fails(fns.createBooking({ ...auth('u1'), data: cdata({ startMin: 900 }) }), 'failed-precondition', 'COUPON_FIRST_ONLY');
+  store.set(`bookings/${ID2}`, { ...store.get(`bookings/${ID2}`), status: 'cancelled' });
+  const r = await fns.createBooking({ ...auth('u1'), data: cdata({ startMin: 900 }) }); assert.equal(r.discount, 2000);
+});
+test('createBooking بدون كوبون: لا خصم ولا حقل couponId', async () => {
+  reset(); coupon(); const r = await fns.createBooking({ ...auth('u1'), data: cdata({ couponCode: undefined }) });
+  assert.equal(r.discount, 0); assert.equal('couponId' in store.get(`bookings/${ID}`), false); assert.equal(store.get('salons/sal/coupons/WELCOME').used, 0);
 });
