@@ -36,6 +36,7 @@ main{max-width:1120px}
 <script type="module">
 import { configured, auth, db } from './js/fb.js';
 import { summarize, money, effectiveFees, currentPeriod } from './js/finance.js';
+import { validateRequest, buildRequest, pendingTotal, parseAmount, STATUS } from './js/payreq.js';
 import { bookSlot } from './js/booking.js';
 import { cellKeys, toEpoch } from './js/cells.js';
 import { slotsFor, fmt } from './js/avail.js';
@@ -199,16 +200,32 @@ async function bookings() {
 async function accounts() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   try {
-    const [bs, ps, pr] = await Promise.all([F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', sid))), F.getDocs(F.collection(db, 'salons', sid, 'payments')), F.getDocs(F.collection(db, 'salons', sid, 'periods')).catch(() => ({ docs: [] }))]);   // القواعد القديمة: لا فترات
+    const [bs, ps, pr, pq] = await Promise.all([F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', sid))), F.getDocs(F.collection(db, 'salons', sid, 'payments')), F.getDocs(F.collection(db, 'salons', sid, 'periods')).catch(() => ({ docs: [] })), F.getDocs(F.collection(db, 'salons', sid, 'paymentRequests')).catch(() => ({ docs: [] }))]);   // القواعد القديمة: لا فترات ولا طلبات تسديد
     const old = pr.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.closedAt - a.closedAt), cur = currentPeriod(bs.docs.map((d) => d.data()), ps.docs.map((d) => d.data()), old[0]?.closedAt || 0);
     const S = summarize(cur.bookings, cur.payments), P = cur.payments.slice().sort((a, b) => b.at - a.at), dt = (t) => new Date(t + 3 * 36e5).toISOString().slice(0, 10);
     const line = (n, x) => `<div class="s" style="padding:4px 0"><span>${n}</span><b>${x}</b></div>`;
+    const Q = pq.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => y.at - x.at), pend = pendingTotal(Q), qdt = (t) => new Date(t + 3 * 36e5).toISOString().slice(0, 10);
     v.innerHTML = `<div class="row" style="text-align:center"><div class="m">المتبقي للمنصة</div><div style="font-size:30px;font-weight:700;color:var(--ac)">${money(S.remaining)}</div>
       <div class="m">المستحق ${money(S.due)} · المسدد ${money(S.paid)}</div></div>
+      <form id="pq" class="row"><b>إرسال تسديد للمنصة</b><div class="m">بعد ما تسلّمين المبلغ للإدارة، أرسلي الطلب هنا. يُحسب مسدَّدًا عندما تؤكد الإدارة الاستلام.</div>${pend ? `<div class="m">طلباتك المعلّقة: ${money(pend)}</div>` : ''}
+        <div class="g3"><div><label for="pa">المبلغ (دينار)</label><input id="pa" inputmode="numeric" dir="ltr" required></div><div style="grid-column:span 2"><label for="pn">ملاحظة (اختياري)</label><input id="pn" maxlength="300" placeholder="مثال: تسليم نقدي باليد"></div></div>
+        <div id="pm" class="m" role="status"></div><button class="p" ${S.remaining - pend > 0 ? '' : 'disabled'}>إرسال طلب التسديد</button></form>
+      ${Q.length ? `<div class="row"><b>طلبات التسديد</b>${Q.slice(0, 10).map((q) => `<div style="padding:6px 0;border-top:1px solid var(--line)"><div class="s"><span>${qdt(q.at)} · ${STATUS[q.status] || esc(q.status)}</span><b>${money(q.amount)}</b></div>${q.note ? `<div class="m">${esc(q.note)}</div>` : ''}${q.status === 'rejected' && q.decision ? `<div class="m bad">سبب الرفض: ${esc(q.decision)}</div>` : ''}${q.status === 'pending' ? `<button data-wd="${esc(q.id)}">سحب الطلب</button>` : ''}</div>`).join('')}</div>` : ''}
       <div class="row"><b>تفاصيل الحجوزات المكتملة (${S.count})</b>${line('إيراد الخدمات', money(S.servicesRevenue))}${line('رسوم الخدمة', money(S.customerFees))}${line('الاستقطاع', money(S.salonCuts))}${line('صافي الصالون', money(S.net))}</div>
       <div class="row"><b>التسديدات (الفترة الحالية)</b>${P.length ? P.map((p) => line(new Date(p.at + 3 * 36e5).toISOString().slice(0, 10), money(p.amount))).join('') : '<div class="m">لا توجد تسديدات بعد.</div>'}</div>
       ${old.length ? `<div class="row"><b>فترات مصفّرة سابقًا</b>${old.map((p) => line(`<a href="statement.html?salon=${encodeURIComponent(sid)}&period=${p.id}" target="_blank" rel="noopener" style="color:var(--ac)">كشف حتى ${dt(p.closedAt)}</a> · ${p.count} حجز`, money(p.due))).join('')}</div>` : ''}
-      <div class="m">المستحق = (رسوم الخدمة + الاستقطاع) للحجوزات المكتملة فقط. التسديد والتصفير تسجّلهما الإدارة.</div>`;
+      <div class="m">المستحق = (رسوم الخدمة + الاستقطاع) للحجوزات المكتملة فقط. التسديد تؤكده الإدارة، والتصفير تسجّله الإدارة.</div>`;
+    $('pq').onsubmit = async (ev) => {
+      ev.preventDefault(); const pm = $('pm'), amt = parseAmount($('pa').value), bad = validateRequest(amt, $('pn').value, S.remaining, pend);
+      if (bad) { pm.className = 'm bad'; pm.textContent = bad; return; }
+      ev.submitter && (ev.submitter.disabled = true);
+      try { await F.addDoc(F.collection(db, 'salons', sid, 'paymentRequests'), buildRequest({ amount: amt, note: $('pn').value, uid: u.uid, now: Date.now() })); accounts(); }
+      catch (e) { if (ev.submitter) ev.submitter.disabled = false; pm.className = 'm bad'; pm.textContent = 'تعذر الإرسال: ' + errText(e); }
+    };
+    v.querySelectorAll('button[data-wd]').forEach((b) => b.onclick = async () => {
+      if (!confirm('سحب طلب التسديد؟')) return; b.disabled = true;
+      try { await F.deleteDoc(F.doc(db, 'salons', sid, 'paymentRequests', b.dataset.wd)); accounts(); } catch (e) { b.disabled = false; alert('تعذر السحب: ' + errText(e)); }
+    });
   } catch (e) { v.innerHTML = '<div class="row bad">تعذر تحميل الحسابات: ' + esc(e.code) + '</div>'; }
 }
 async function manual() {
@@ -257,5 +274,6 @@ async function manual() {
 }
 tab(4);
 startNotifier({ F, db, role: 'owner', header: document.querySelector('header'), go: tab, watches: [
-  { kind: 'booking', q: F.query(F.collection(db, 'bookings'), F.where('salonId', '==', sid)), label: 'طلبات إلغاء بانتظار قرارك', tab: 4 }] });
+  { kind: 'booking', q: F.query(F.collection(db, 'bookings'), F.where('salonId', '==', sid)), label: 'طلبات إلغاء بانتظار قرارك', tab: 4 },
+  { kind: 'payreq', q: F.query(F.collection(db, 'salons', sid, 'paymentRequests')), tab: 5 }] });
 </script></body></html>
