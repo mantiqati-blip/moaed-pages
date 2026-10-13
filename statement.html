@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>كشف حساب | موعد أنوثة</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBF5F7;--card:#fff;--ink:#2A1722;--mute:#7A6571;--line:#EBDCE3;--ac:#B83A6B;--soft:#F8E3EC;--bad:#C0392B;--ok:#1E8E5A}
+@media(prefers-color-scheme:dark){:root{--bg:#1A1017;--card:#26171F;--ink:#F6E9EF;--mute:#B79DAA;--line:#3A2630;--ac:#E26C9A;--soft:#3A2230;--bad:#F0776A;--ok:#4CC38A}}
+*{box-sizing:border-box}body{font-family:Cairo,Tahoma,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0;font-size:14px}
+main{max-width:720px;margin:0 auto;padding:16px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin:10px 0}
+h1{font-size:20px;font-weight:800;margin:6px 0}h2{font-size:16px;margin:0 0 8px}.m{color:var(--mute);font-size:13px}.bad{color:var(--bad)}.ok{color:var(--ok)}
+.s{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line)}.s:last-child{border:0}.big{font-size:26px;font-weight:800;color:var(--ac);text-align:center}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{color:var(--mute);font-weight:600}
+button,a.b{font:inherit;font-weight:700;background:var(--ac);color:#fff;border:0;border-radius:12px;padding:12px 18px;min-height:44px;cursor:pointer;text-decoration:none;display:inline-block}
+a:focus-visible,button:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+@media print{body{background:#fff;color:#000}.noprint{display:none}.card{border-color:#999;break-inside:avoid}:root{--ac:#8E2A52;--mute:#444;--line:#bbb}}
+</style></head><body><main id="app"><div class="card">جارٍ التحميل...</div></main>
+<script type="module">
+import { configured, auth, db } from './js/fb.js';
+import { summarize, money, counted } from './js/finance.js';
+const app = document.getElementById('app'), q = new URLSearchParams(location.search), sid = q.get('salon'), pid = q.get('period');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const day = (t) => new Date(t + 3 * 36e5).toISOString().slice(0, 10), hm = (t) => new Date(t + 3 * 36e5).toISOString().slice(11, 16);   // توقيت بغداد
+const fail = (t) => { app.innerHTML = `<div class="card bad">${t}</div>`; throw 0; };
+if (!configured) fail('الموقع قيد الإعداد.'); if (!sid || !pid) fail('رابط الكشف ناقص.');
+const F = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+await auth.authStateReady?.();
+if (!auth.currentUser || auth.currentUser.isAnonymous) fail('سجّلي الدخول أولًا: <a href="login.html">تسجيل الدخول</a>');
+try {
+  const [pd, sd, bs, ps] = await Promise.all([F.getDoc(F.doc(db, 'salons', sid, 'periods', pid)), F.getDoc(F.doc(db, 'salons', sid)),
+    F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', sid), F.where('status', '==', 'completed'))), F.getDocs(F.collection(db, 'salons', sid, 'payments'))]);
+  if (!pd.exists()) fail('الكشف غير موجود.');
+  const P = pd.data(), from = P.from || 0, to = P.closedAt, inP = (t) => (from === 0 || (t || 0) > from) && (t || 0) <= to;       // نفس منطق الفترات بالحسابات
+  const B = bs.docs.map((d) => ({ id: d.id, ...d.data() })).filter((b) => inP(b.completedAt)), pay = ps.docs.map((d) => d.data()).filter((p) => inP(p.at)).sort((a, b) => a.at - b.at);
+  const S = summarize(B, pay), rows = B.filter(counted).sort((a, b) => (a.completedAt || 0) - (b.completedAt || 0));
+  const match = ['count', 'servicesRevenue', 'customerFees', 'salonCuts', 'due', 'paid', 'net'].every((k) => S[k] === P[k]);
+  const line = (n, x) => `<div class="s"><span>${n}</span><b>${x}</b></div>`;
+  app.innerHTML = `<div class="card"><h1>كشف حساب — ${esc(sd.data()?.name || sid)}</h1>
+    <div class="m">الفترة: ${from ? day(from) : 'من البداية'} إلى ${day(to)} · رقم الكشف: ${esc(pid.slice(0, 8))} · صدر بتاريخ ${day(P.closedAt)}</div></div>
+    <div class="card"><div class="m" style="text-align:center">المستحق للمنصة عن الفترة</div><div class="big">${money(S.due)}</div><div class="m" style="text-align:center">المسدد ${money(S.paid)} · المتبقي ${money(S.remaining)}</div></div>
+    <div class="card"><h2>الملخص (${S.count} حجز مكتمل)</h2>${line('إيراد الخدمات', money(S.servicesRevenue))}${line('رسوم الخدمة', money(S.customerFees))}${line('الاستقطاع', money(S.salonCuts))}${line('صافي الصالون', money(S.net))}</div>
+    <div class="card"><h2>الحجوزات</h2><div class="tw"><table><thead><tr><th>رقم</th><th>التاريخ</th><th>الخدمات</th><th>المبلغ</th><th>رسم</th><th>استقطاع</th></tr></thead><tbody>${rows.map((b) => `<tr><td>${esc(b.id.slice(0, 6))}</td><td>${b.completedAt ? day(b.completedAt) + ' ' + hm(b.completedAt) : '—'}</td><td>${esc((b.services || []).map((s) => s.name).join('، '))}</td><td>${money(b.servicesTotal - (b.discount || 0))}</td><td>${money(b.customerFee)}</td><td>${money(b.salonCut)}</td></tr>`).join('') || '<tr><td colspan="6">لا توجد حجوزات.</td></tr>'}</tbody></table></div></div>
+    <div class="card"><h2>الدفعات</h2>${pay.length ? pay.map((p) => line(day(p.at), money(p.amount))).join('') : '<div class="m">لا توجد دفعات بهذه الفترة.</div>'}</div>
+    <div class="card ${match ? 'ok' : 'bad'}" role="status">${match ? 'مجموع الكشف يطابق الأرقام المحفوظة عند التصفير بالدينار تمامًا.' : 'تنبيه: مجموع الكشف لا يطابق الأرقام المحفوظة عند التصفير. راجعي الإدارة قبل الاعتماد.'}</div>
+    <div class="noprint"><button id="pr">طباعة / حفظ PDF</button> <a class="b" href="javascript:history.back()" style="background:var(--soft);color:var(--ink)">رجوع</a></div>`;
+  document.getElementById('pr').onclick = () => print();
+} catch (e) { if (e) fail('تعذر تحميل الكشف: ' + esc(e.code || e.message)); }
+</script></body></html>
