@@ -2,9 +2,20 @@
 // تطبيع عربي للبحث: يتجاهل التشكيل والهمزات والتاء المربوطة والألف المقصورة
 export const normAr = (s) => String(s ?? '').toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim();
 
-export function filterSalons(list, { q = '', g = '', a = '' } = {}) {
-  const nq = normAr(q);
-  return list.filter((x) => (!g || x.governorateId === g) && (!a || x.areaId === a) && (!nq || normAr(x.name).includes(nq)));
+// s = اسم خدمة (جزء منه): يطابق الصالون إذا كان عنده خدمة فعّالة اسمها يحتوي النص (x.svc = أسماء خدماته الفعّالة، تُحمَّل من salons/{id}/services)
+export function filterSalons(list, { q = '', g = '', a = '', s = '' } = {}) {
+  const nq = normAr(q), ns = normAr(s);
+  return list.filter((x) => (!g || x.governorateId === g) && (!a || x.areaId === a) && (!nq || normAr(x.name).includes(nq))
+    && (!ns || (x.svc || []).some((n) => normAr(n).includes(ns))));
+}
+
+// أكثر الخدمات شيوعًا بين الصالونات (تُعدّ مرة واحدة لكل صالون) لعرضها كاقتراحات؛ تُعرض بأول كتابة وردت
+export function topServices(list, n = 8) {
+  const m = new Map();
+  for (const x of list) for (const k of new Set((x.svc || []).map(normAr).filter(Boolean))) {
+    const e = m.get(k) || { label: (x.svc || []).find((v) => normAr(v) === k), count: 0 }; e.count++; m.set(k, e);
+  }
+  return [...m.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'ar')).slice(0, n).map((e) => e.label);
 }
 
 // المحافظات التي فيها صالونات فقط، مرتبة بالاسم العربي
