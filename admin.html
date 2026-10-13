@@ -46,15 +46,18 @@ areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - 
 app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button><button id="t7">طلبات الانضمام</button><button id="t8">الرسوم</button></nav><div id="v"></div>';
 const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings, appsTab, feesTab][n - 1](); };
 [1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => $('t' + i).onclick = () => tab(i));
+// نسخة عامة بدون بيانات خاصة (لا هاتف ولا حساب) تعرضها الصفحة الرئيسية. فشلها لا يمنع العملية الأصلية.
+const pubSync = (x, st) => F.setDoc(F.doc(db, 'publicSalons', x.id || x.slug), { name: x.name, slug: x.slug || x.id, governorateId: x.governorateId || '', areaId: x.areaId || '', status: st || x.status }).catch(() => {});
 async function list() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   const s = await F.getDocs(F.collection(db, 'salons')), L = s.docs.map((d) => ({ id: d.id, ...d.data() }));
   if (!L.length) { v.innerHTML = '<div class="row">لا توجد صالونات بعد. أضيفي أول صالون من تبويب «إضافة صالون».</div>'; return; }
-  v.innerHTML = L.map((x) => `<div class="row s"><div><b>${esc(x.name)}</b> <span class="tag ${x.status === 'active' ? '' : 'off'}">${x.status === 'active' ? 'فعّال' : 'موقوف'}</span>
+  v.innerHTML = '<div class="row s"><span class="m">القائمة العامة بالصفحة الرئيسية تُحدَّث تلقائيًا. استعملي الزر إذا نقصت صالونات قديمة.</span><button id="sy">مزامنة القائمة العامة</button></div>' + L.map((x) => `<div class="row s"><div><b>${esc(x.name)}</b> <span class="tag ${x.status === 'active' ? '' : 'off'}">${x.status === 'active' ? 'فعّال' : 'موقوف'}</span>
     <div class="m" dir="ltr">/s/${esc(x.slug)} · ${esc(x.ownerPhone)}</div></div><button data-id="${esc(x.id)}" data-st="${x.status === 'active' ? 'suspended' : 'active'}">${x.status === 'active' ? 'إيقاف' : 'تفعيل'}</button></div>`).join('');
-  v.querySelectorAll('button').forEach((b) => b.onclick = async () => {
+  $('sy').onclick = async () => { $('sy').disabled = true; await Promise.all(L.map((x) => pubSync(x))); $('sy').textContent = 'تمت المزامنة (' + L.length + ')'; };
+  v.querySelectorAll('button[data-st]').forEach((b) => b.onclick = async () => {
     const st = b.dataset.st; if (st === 'suspended' && !confirm('إيقاف الصالون؟ لن يظهر للزبونات.')) return;
-    b.disabled = true; try { await F.updateDoc(F.doc(db, 'salons', b.dataset.id), { status: st }); await audit('salon.' + st, b.dataset.id); list(); } catch (e) { alert('تعذر التحديث: ' + e.code); b.disabled = false; }
+    b.disabled = true; try { await F.updateDoc(F.doc(db, 'salons', b.dataset.id), { status: st }); await pubSync(L.find((x) => x.id === b.dataset.id), st); await audit('salon.' + st, b.dataset.id); list(); } catch (e) { alert('تعذر التحديث: ' + e.code); b.disabled = false; }
   });
 }
 function form() {
@@ -85,7 +88,7 @@ function form() {
         const b = F.writeBatch(db);
         b.set(F.doc(db, 'users', ouid), { role: 'owner', status: 'active', salonId: slug, name: on });
         b.set(F.doc(db, 'salons', slug), { name: $('n').value.trim(), slug, status: 'active', ownerUid: ouid, ownerPhone: ph, governorateId: $('gv').value, areaId: $('ar').value, createdAt: F.serverTimestamp(), createdBy: u.uid });
-        await b.commit();
+        await b.commit(); await pubSync({ name: $('n').value.trim(), slug, governorateId: $('gv').value, areaId: $('ar').value, status: 'active' });
       } catch (e) { throw { code: 'partial', msg: `أُنشئ حساب ${un} لكن فشل حفظ الصالون (${e.code}). احذفي الحساب من Authentication ثم أعيدي.` }; }
       await audit('salon.create', slug).catch(() => {});
       msg(`تم. الصالون: /s/${slug} واسم المستخدم: ${un}. سلّمي كلمة السر لصاحبة الصالون ولا تحتفظي بها.`, 'ok'); $('f').reset();
@@ -242,7 +245,7 @@ async function appsTab() {
           const b = F.writeBatch(db);
           b.set(F.doc(db, 'users', ouid), { role: 'owner', status: 'active', salonId: slug, name: cur.ownerName });
           b.set(F.doc(db, 'salons', slug), { name: cur.salonName, slug, status: 'active', ownerUid: ouid, ownerPhone: cur.ownerPhone, governorateId: cur.governorateId, areaId: cur.areaId, createdAt: F.serverTimestamp(), createdBy: u.uid });
-          b.update(ref, { status: 'approved', salonId: slug, decidedBy: u.uid, decidedAt: Date.now() }); await b.commit();
+          b.update(ref, { status: 'approved', salonId: slug, decidedBy: u.uid, decidedAt: Date.now() }); await b.commit(); await pubSync({ name: cur.salonName, slug, governorateId: cur.governorateId, areaId: cur.areaId, status: 'active' });
         } catch (e) { throw { msg: `أُنشئ حساب ${un} لكن فشل الحفظ (${e.code}). احذفي الحساب من Authentication ثم أعيدي.` }; }
         await F.updateDoc(F.doc(db, 'salons', slug), { address: cur.address, whatsapp: cur.whatsapp, whatsapp2: cur.whatsapp2 || null, activityType: cur.activityType, hours: cur.hours, applicationId: x.id }).catch(() => {});
         await audit('application.approve', x.id + '>' + slug).catch(() => {}); say(`تمت الموافقة. الصالون: /s/${slug} واسم المستخدم: ${un}. سلّمي كلمة السر لها ولا تحتفظي بها.`, 'ok');
