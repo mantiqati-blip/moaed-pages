@@ -6,7 +6,7 @@ const clone = (x) => JSON.parse(JSON.stringify(x));
 function mergeInto(t, p) { for (const [k, v] of Object.entries(p)) { if (v === DEL) delete t[k]; else if (v && typeof v === 'object') { t[k] = t[k] && typeof t[k] === 'object' ? t[k] : {}; mergeInto(t[k], v); } else t[k] = v; } return t; }
 function setDotted(t, key, v) { const ps = key.split('.'); let o = t; ps.slice(0, -1).forEach((p) => { o[p] = o[p] || {}; o = o[p]; }); if (v === DEL) delete o[ps.at(-1)]; else o[ps.at(-1)] = v; }
 const snap = (path) => ({ exists: store.has(path), id: path.split('/').pop(), data: () => clone(store.get(path)) });
-const ref = (path) => ({ path, collection: (n) => colRef(`${path}/${n}`), doc: undefined });
+const ref = (path) => ({ path, collection: (n) => colRef(`${path}/${n}`), get: async () => snap(path) });
 const colRef = (path) => { const f = []; const q = { path, doc: (id) => ref(`${path}/${id ?? 'auto' + store.size}`), where(k, o, v) { f.push([k, o, v]); return q; }, limit() { return q; }, _run() { const docs = [...store.keys()].filter((p) => p.startsWith(path + '/') && !p.slice(path.length + 1).includes('/')).filter((p) => f.every(([k, o, v]) => { const x = store.get(p)[k]; return o === '==' ? x === v : o === '>' ? x > v : true; })).map((p) => snap(p)); return { docs, size: docs.length }; } }; return q; };
 const fakeDb = {
   doc: ref, collection: colRef,
@@ -85,4 +85,35 @@ test('acceptMove: الوقت المقترح محجوز لغيرها يفشل و�
   store.set(`schedules/s2_${day(5)}`, { cells: { 58: 'other' } });
   await fails(fns.acceptMove({ ...auth('u1'), data: { bookingId: ID } }), 'aborted', 'SLOT_TAKEN');
   const b = store.get(`bookings/${ID}`); assert.equal(b.staffId, 's1'); assert.ok(b.moveProposal); assert.equal(Object.keys(store.get(`schedules/s1_${day(3)}`).cells).length, 4);
+});
+
+// ---- closePeriod ----
+const done = (id, at, o = {}) => store.set(`bookings/${id}`, { salonId: 'sal', status: 'completed', source: 'online', completedAt: at, servicesTotal: 10000, discount: 0, customerFee: 1000, salonCut: 2000, ...o });
+const admin = () => { store.set('users/adm', { role: 'admin', status: 'active' }); store.set('users/own', { role: 'owner', status: 'active' }); };
+const periods = () => [...store.keys()].filter((p) => /^salons\/sal\/periods\/[^/]+$/.test(p));
+test('closePeriod: الأدمن يصفّر حسابًا متوازنًا ويُكتب سجل التدقيق', async () => {
+  reset(); admin(); done('a', now - 5000); done('b', now - 4000);
+  store.set('salons/sal/payments/p1', { amount: 6000, by: 'adm', at: now - 3000 });
+  const r = await fns.closePeriod({ ...auth('adm'), data: { salonId: 'sal' } });
+  assert.deepEqual([r.count, r.due, r.paid, r.remaining, r.net, r.from], [2, 6000, 6000, 0, 16000, 0]);
+  assert.equal(periods().length, 1); assert.equal(store.get(periods()[0]).closedBy, 'adm');
+  assert.ok([...store.keys()].some((p) => p.startsWith('audit/') && store.get(p).action === 'period.close'));
+});
+test('closePeriod: غير الأدمن مرفوض ولا يُكتب شيء', async () => {
+  reset(); admin(); done('a', now - 5000); store.set('salons/sal/payments/p1', { amount: 3000, by: 'adm', at: now - 3000 });
+  await fails(fns.closePeriod({ ...auth('own'), data: { salonId: 'sal' } }), 'permission-denied', 'ADMIN_ONLY');
+  assert.equal(periods().length, 0);
+});
+test('closePeriod: المتبقي ليس صفرًا يُرفض', async () => {
+  reset(); admin(); done('a', now - 5000); store.set('salons/sal/payments/p1', { amount: 2999, by: 'adm', at: now - 3000 });
+  await fails(fns.closePeriod({ ...auth('adm'), data: { salonId: 'sal' } }), 'failed-precondition', 'REMAINING_NOT_ZERO');
+  assert.equal(periods().length, 0);
+});
+test('closePeriod: الفترة الثانية لا تعدّ القديم مرة ثانية', async () => {
+  reset(); admin(); done('a', now - 5000); store.set('salons/sal/payments/p1', { amount: 3000, by: 'adm', at: now - 3000 });
+  const first = await fns.closePeriod({ ...auth('adm'), data: { salonId: 'sal' } });
+  await new Promise((r) => setTimeout(r, 5));
+  done('b', Date.now() - 1, { customerFee: 500, salonCut: 500 }); store.set('salons/sal/payments/p2', { amount: 1000, by: 'adm', at: Date.now() - 1 });
+  const second = await fns.closePeriod({ ...auth('adm'), data: { salonId: 'sal' } });
+  assert.deepEqual([second.count, second.due, second.from], [1, 1000, first.closedAt]); assert.equal(periods().length, 2);
 });
