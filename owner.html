@@ -29,6 +29,7 @@ import { cellKeys, toEpoch } from './js/cells.js';
 import { slotsFor, fmt } from './js/avail.js';
 import { toXLSX, downloadX, bookingColumns, dateOf } from './js/export.js';
 import qrcode from './js/qr.js';
+import { errText } from './js/strings.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const latin = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
@@ -70,11 +71,11 @@ async function services() {
     <div><label>السعر (دينار)</label><input id="p" inputmode="numeric" dir="ltr" required></div>
     <div><label>المدة</label><select id="d">${mins.map((m) => `<option value="${m}">${m} دقيقة</option>`).join('')}</select></div></div>
     <div id="msg" class="m" role="status"></div><button class="p">حفظ الخدمة</button></form>`;
-  v.querySelectorAll('button[data-id]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await F.updateDoc(F.doc(col, b.dataset.id), { active: b.dataset.a === '1' }); services(); } catch (e) { alert('تعذر التحديث: ' + e.code); b.disabled = false; } });
+  v.querySelectorAll('button[data-id]').forEach((b) => b.onclick = async () => { b.disabled = true; try { await F.updateDoc(F.doc(col, b.dataset.id), { active: b.dataset.a === '1' }); services(); } catch (e) { alert('تعذر التحديث: ' + errText(e)); b.disabled = false; } });
   $('f').onsubmit = async (ev) => {
     ev.preventDefault(); const price = Number(latin($('p').value.replace(/[,،\s]/g, '')));
     if (!Number.isInteger(price) || price <= 0) return say('السعر لازم يكون رقمًا صحيحًا أكبر من صفر.', 'bad');
-    try { await F.addDoc(col, { name: $('n').value.trim(), price, durationMin: Number($('d').value), active: true, createdAt: F.serverTimestamp() }); services(); } catch (e) { say('تعذر الحفظ: ' + e.code, 'bad'); }
+    try { await F.addDoc(col, { name: $('n').value.trim(), price, durationMin: Number($('d').value), active: true, createdAt: F.serverTimestamp() }); services(); } catch (e) { say('تعذر الحفظ: ' + errText(e), 'bad'); }
   };
 }
 const DAYS = [[6, 'السبت'], [0, 'الأحد'], [1, 'الاثنين'], [2, 'الثلاثاء'], [3, 'الأربعاء'], [4, 'الخميس'], [5, 'الجمعة']];
@@ -87,7 +88,7 @@ function hours() {
   $('f').onsubmit = async (ev) => {
     ev.preventDefault(); const out = {};
     for (const [k, n] of DAYS) { const o = $('o' + k).value, c = $('c' + k).value, off = $('x' + k).checked; if (!off && !(o && c && o < c)) return say(`ساعات ${n}: الإغلاق لازم يكون بعد الفتح.`, 'bad'); out[k] = { open: o, close: c, off }; }
-    try { await F.updateDoc(sref, { hours: out }); salon.hours = out; say('تم حفظ الدوام.', 'ok'); } catch (e) { say('تعذر الحفظ: ' + e.code, 'bad'); }
+    try { await F.updateDoc(sref, { hours: out }); salon.hours = out; say('تم حفظ الدوام.', 'ok'); } catch (e) { say('تعذر الحفظ: ' + errText(e), 'bad'); }
   };
 }
 async function staff() {
@@ -99,7 +100,7 @@ async function staff() {
     <div class="m">يُرسل الطلب للإدارة، وتُنشأ لها بيانات الدخول بعد الموافقة.</div><div id="msg" class="m" role="status"></div><button class="p">إرسال الطلب</button></form>`;
   $('f').onsubmit = async (ev) => {
     ev.preventDefault(); const name = $('n').value.trim(); if (name.split(/\s+/).length < 3) return say('الاسم لازم يكون ثلاثيًا.', 'bad');
-    try { await F.addDoc(col, { name, status: 'pending', createdAt: F.serverTimestamp() }); staff(); } catch (e) { say('تعذر الإرسال: ' + e.code, 'bad'); }
+    try { await F.addDoc(col, { name, status: 'pending', createdAt: F.serverTimestamp() }); staff(); } catch (e) { say('تعذر الإرسال: ' + errText(e), 'bad'); }
   };
 }
 const ST = { confirmed: 'مؤكد', completed: 'تمت الخدمة', no_show: 'لم تحضر', cancel_requested: 'طلب إلغاء', pending_admin: 'بانتظار قرار الإدارة', cancelled: 'ملغي' };
@@ -143,7 +144,7 @@ async function bookings() {
         const bt = F.writeBatch(db); bt.update(ref, upd); bt.update(F.doc(db, 'schedules', bk.staffId + '_' + d.toISOString().slice(0, 10)), del); await bt.commit();
       } else await F.updateDoc(ref, upd);
       await F.addDoc(F.collection(db, 'bookings', id, 'events'), { by: u.uid, action: a, at: Date.now() }).catch(() => {}); bookings();
-    } catch (e) { b.disabled = false; say(a === 'done' ? 'تعذر الإكمال: الرمز غير صحيح أو لم يحن موعد الحجز بعد.' : 'تعذر التنفيذ: ' + e.code, 'bad'); }
+    } catch (e) { b.disabled = false; say(a === 'done' ? 'تعذر الإكمال: الرمز غير صحيح أو لم يحن موعد الحجز بعد.' : 'تعذر التنفيذ: ' + errText(e), 'bad'); }
   });
   v.querySelectorAll('[data-a=mv]').forEach((btn) => btn.onclick = async () => {   // اقتراح نقل: يظهر للزبونة فتوافق أو ترفض
     const b = all.find((x) => x.id === btn.dataset.id), row = btn.closest('.row'); let box = row.querySelector('[data-mp]'); if (box) { box.remove(); return; }
@@ -167,7 +168,7 @@ async function bookings() {
           const start = toEpoch(day, Number(t.dataset.m)); if (!confirm(`إرسال اقتراح نقل إلى ${day} الساعة ${fmt(Number(t.dataset.m))}؟`)) return; t.disabled = true;
           try { await F.updateDoc(F.doc(db, 'bookings', b.id), { moveProposal: { start, end: start + b.durationMin * 60000, staffId: sf, reason, by: u.uid, at: Date.now() } });
             await F.addDoc(F.collection(db, 'bookings', b.id, 'events'), { by: u.uid, action: 'propose_move', from: b.start, to: start, reason, at: Date.now() }).catch(() => {}); bookings(); }
-          catch (e) { t.disabled = false; ms('تعذر الإرسال: ' + (e.code || e.message), 'bad'); }
+          catch (e) { t.disabled = false; ms('تعذر الإرسال: ' + errText(e), 'bad'); }
         });
       } catch (e) { tm.innerHTML = '<div class="bad">تعذر تحميل الأوقات.</div>'; }
     }
@@ -231,7 +232,7 @@ async function manual() {
     try { await bookSlot({ db, fs: { doc: F.doc, runTransaction: F.runTransaction }, user: u, salon: { id: sid }, staffId: $('sf').value, date: $('dy').value, startMin: pick.m, services: L, settings: sets,
         idempotencyKey: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2), source: b ? 'blocked' : 'manual', customerName: b ? '' : name, customerPhone: b ? '' : ph });
       say(b ? 'تم إغلاق الوقت.' : 'تم حفظ الحجز.', 'ok'); setTimeout(manual, 900); }
-    catch (e) { $('go').disabled = false; say(e.message === 'SLOT_TAKEN' ? 'هذا الوقت انحجز قبل لحظات. اختاري وقتًا آخر.' : e.message === 'NOT_CONFIGURED' ? 'إعدادات المنصة غير مكتملة.' : 'تعذر الحفظ: ' + (e.code || e.message), 'bad'); if (e.message === 'SLOT_TAKEN') load(); }
+    catch (e) { $('go').disabled = false; say(e.message === 'SLOT_TAKEN' ? 'هذا الوقت انحجز قبل لحظات. اختاري وقتًا آخر.' : e.message === 'NOT_CONFIGURED' ? 'إعدادات المنصة غير مكتملة.' : 'تعذر الحفظ: ' + errText(e), 'bad'); if (e.message === 'SLOT_TAKEN') load(); }
   };
 }
 tab(4);
