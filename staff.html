@@ -19,6 +19,8 @@ input{font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:1
 <main id="app"><div class="row">جارٍ التحقق من الدخول...</div></main>
 <script type="module">
 import { configured, auth, db } from './js/fb.js';
+import { startNotifier } from './js/notify.js';
+import { summarize, money, currentPeriod } from './js/finance.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 if (!configured) { app.innerHTML = '<div class="row bad">إعدادات Firebase غير مضبوطة.</div>'; throw 0; }
@@ -31,22 +33,40 @@ if (!me || me.status !== 'active' || me.role !== 'staff' || !me.staffId) { app.i
 $('me').textContent = me.name || ''; $('out').hidden = false; $('out').onclick = async () => { await A.signOut(auth); location.href = 'login.html'; };
 try { $('sn').textContent = (await F.getDoc(F.doc(db, 'salons', me.salonId))).data()?.name || 'موظفة الصالون'; } catch (e) {}
 const ST = { confirmed: 'مؤكد', completed: 'تمت الخدمة', no_show: 'لم تحضر', cancel_requested: 'طلب إلغاء', pending_admin: 'طلب إلغاء', cancelled: 'ملغي' };
-let bf = 'today';
+let bf = 'today', view = 'bookings', who = 'mine', perms = {};
+try { perms = (await F.getDoc(F.doc(db, 'salons', me.salonId, 'staff', me.staffId))).data()?.perms || {}; } catch (e) {}   // ما تفوّضه صاحبة الصالون
+const navHtml = () => perms.accounts ? `<div class="s" style="gap:8px;margin-bottom:8px">${[['bookings', 'الحجوزات'], ['accounts', 'الحسابات']].map(([k, n]) => `<button style="flex:1" class="${view === k ? 'on' : ''}" data-v="${k}">${n}</button>`).join('')}</div>` : '';
+const bindNav = () => app.querySelectorAll('[data-v]').forEach((b) => b.onclick = () => { view = b.dataset.v; load(); });
+async function accounts() {
+  app.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+  try {
+    const [bs, ps, pr] = await Promise.all([F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', me.salonId))), F.getDocs(F.collection(db, 'salons', me.salonId, 'payments')), F.getDocs(F.collection(db, 'salons', me.salonId, 'periods'))]);
+    const last = pr.docs.map((d) => d.data().closedAt || 0).sort((a, b) => b - a)[0] || 0, cur = currentPeriod(bs.docs.map((d) => d.data()), ps.docs.map((d) => d.data()), last), S = summarize(cur.bookings, cur.payments);
+    const line = (n, x) => `<div class="s" style="padding:4px 0"><span>${n}</span><b>${x}</b></div>`, P = cur.payments.slice().sort((a, b) => b.at - a.at);
+    app.innerHTML = navHtml() + `<div class="row" style="text-align:center"><div class="m">المتبقي للمنصة</div><div style="font-size:30px;font-weight:700;color:var(--ac)">${money(S.remaining)}</div><div class="m">المستحق ${money(S.due)} · المسدد ${money(S.paid)}</div></div>
+      <div class="row"><b>الحجوزات المكتملة (${S.count})</b>${line('إيراد الخدمات', money(S.servicesRevenue))}${line('رسوم الخدمة', money(S.customerFees))}${line('الاستقطاع', money(S.salonCuts))}${line('صافي الصالون', money(S.net))}</div>
+      <div class="row"><b>التسديدات (الفترة الحالية)</b>${P.length ? P.map((p) => line(new Date(p.at + 3 * 36e5).toISOString().slice(0, 10), money(p.amount))).join('') : '<div class="m">لا توجد تسديدات بعد.</div>'}</div><div class="m">عرض فقط. التسديد والتصفير تسجّلهما الإدارة.</div>`;
+  } catch (e) { app.innerHTML = navHtml() + '<div class="row bad">تعذر تحميل الحسابات: ' + esc(e.code) + '</div>'; }
+  bindNav();
+}
 async function load() {
+  if (view === 'accounts' && perms.accounts) return accounts();
   app.innerHTML = '<div class="row">جارٍ التحميل...</div>'; let all;
-  try { all = (await F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', me.salonId)))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((b) => b.staffId === me.staffId).sort((a, b) => a.start - b.start); }
+  try { all = (await F.getDocs(F.query(F.collection(db, 'bookings'), F.where('salonId', '==', me.salonId)))).docs.map((d) => ({ id: d.id, ...d.data() })).filter((b) => (perms.allBookings && who === 'all') || b.staffId === me.staffId).sort((a, b) => a.start - b.start); }
   catch (e) { app.innerHTML = '<div class="row bad">تعذر تحميل الحجوزات: ' + esc(e.code) + '</div>'; return; }
   const B3 = (t) => new Date(t + 3 * 36e5), dk = (t) => B3(t).toISOString().slice(0, 10), td = dk(Date.now()), now = Date.now();
   const L = all.filter((b) => bf === 'today' ? dk(b.start) === td : dk(b.start) > td), hm = (t) => String(B3(t).getUTCHours()).padStart(2, '0') + ':' + String(B3(t).getUTCMinutes()).padStart(2, '0');
-  app.innerHTML = `<div class="s" style="gap:8px;margin-bottom:8px">${[['today', 'اليوم'], ['next', 'القادمة']].map(([k, n]) => `<button style="flex:1" class="${bf === k ? 'on' : ''}" data-f="${k}">${n}</button>`).join('')}</div>` +
+  app.innerHTML = navHtml() + (perms.allBookings ? `<div class="s" style="gap:8px;margin-bottom:8px">${[['mine', 'حجوزاتي'], ['all', 'كل الصالون']].map(([k, n]) => `<button style="flex:1" class="${who === k ? 'on' : ''}" data-w="${k}">${n}</button>`).join('')}</div>` : '') + `<div class="s" style="gap:8px;margin-bottom:8px">${[['today', 'اليوم'], ['next', 'القادمة']].map(([k, n]) => `<button style="flex:1" class="${bf === k ? 'on' : ''}" data-f="${k}">${n}</button>`).join('')}</div>` +
     (L.length ? L.map((b) => {
       const a = [];
-      if (b.status === 'confirmed' && now >= b.start) a.push(`${b.source === 'online' ? '<input inputmode="numeric" maxlength="4" dir="ltr" placeholder="الرمز" aria-label="رمز الزبونة">' : ''}<button class="p" data-a="done" data-id="${esc(b.id)}" data-o="${b.source === 'online' ? 1 : 0}">تمت الخدمة</button>`);
-      if (b.status === 'confirmed' && now >= b.end) a.push(`<button data-a="ns" data-id="${esc(b.id)}">لم تحضر</button>`);
+      if (b.staffId === me.staffId && b.status === 'confirmed' && now >= b.start) a.push(`${b.source === 'online' ? '<input inputmode="numeric" maxlength="4" dir="ltr" placeholder="الرمز" aria-label="رمز الزبونة">' : ''}<button class="p" data-a="done" data-id="${esc(b.id)}" data-o="${b.source === 'online' ? 1 : 0}">تمت الخدمة</button>`);
+      if (b.staffId === me.staffId && b.status === 'confirmed' && now >= b.end) a.push(`<button data-a="ns" data-id="${esc(b.id)}">لم تحضر</button>`);
       return `<div class="row"><div class="s"><b>${hm(b.start)} — ${esc(b.customerName || (b.source === 'blocked' ? 'وقت مغلق' : '—'))}</b><span class="tag ${b.status === 'confirmed' ? '' : 'off'}">${ST[b.status] || esc(b.status)}</span></div>
       <div class="m">${esc((b.services || []).map((x) => x.name).join('، '))}</div>${a.length ? `<div class="s" style="justify-content:flex-start;margin-top:8px">${a.join('')}</div>` : ''}</div>`;
     }).join('') : '<div class="row">لا توجد حجوزات.</div>') + '<div id="msg" class="m" role="status"></div>';
   app.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { bf = b.dataset.f; load(); });
+  app.querySelectorAll('[data-w]').forEach((b) => b.onclick = () => { who = b.dataset.w; load(); });
+  bindNav();
   app.querySelectorAll('[data-a]').forEach((b) => b.onclick = async () => {
     const id = b.dataset.id, say = (t) => { $('msg').className = 'm bad'; $('msg').textContent = t; }; let upd;
     if (b.dataset.a === 'done') { upd = { status: 'completed', completedAt: Date.now() }; if (b.dataset.o === '1') { const c = b.parentNode.querySelector('input').value.trim(); if (!/^\d{4}$/.test(c)) return say('أدخلي رمز الزبونة (٤ أرقام).'); upd.codeEntered = c; } }
@@ -57,4 +77,6 @@ async function load() {
   });
 }
 load();
+startNotifier({ F, db, role: 'staff', ctx: { staffId: me.staffId }, header: document.querySelector('header'), go: () => load(), watches: [
+  { kind: 'booking', q: F.query(F.collection(db, 'bookings'), F.where('salonId', '==', me.salonId)) }] });
 </script></body></html>
