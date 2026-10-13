@@ -42,10 +42,10 @@ export async function rescheduleBooking({ db, fs, user, bookingId, date, startMi
     const clash = newKeys.filter((k) => ncells[k] !== undefined && ncells[k] !== bookingId);   // خلايا حجزها نفسه ليست تعارضًا
     if (clash.length) throw new Error('SLOT_TAKEN');
     if (oid === nid) {
-      const upd = {}; oldKeys.filter((k) => !newKeys.includes(k)).forEach((k) => { upd['cells.' + k] = fs.deleteField(); }); newKeys.forEach((k) => { upd['cells.' + k] = bookingId; });
+      const upd = {}; oldKeys.filter((k) => !newKeys.includes(k)).forEach((k) => { upd['cells.' + k] = fs.deleteField(); }); newKeys.forEach((k) => { upd['cells.' + k] = bookingId; }); upd.moving = bookingId;
       tx.update(fs.doc(db, 'schedules', nid), upd);
     } else {
-      const del = {}; oldKeys.forEach((k) => { del['cells.' + k] = fs.deleteField(); }); tx.update(fs.doc(db, 'schedules', oid), del);
+      const del = {}; oldKeys.forEach((k) => { del['cells.' + k] = fs.deleteField(); }); del.moving = bookingId; tx.update(fs.doc(db, 'schedules', oid), del);
       tx.set(fs.doc(db, 'schedules', nid), { cells: Object.fromEntries(newKeys.map((k) => [k, bookingId])) }, { merge: true });
     }
     tx.update(bref, { start, end, rescheduleCount: 1, rescheduledAt: now, prevStart: b.start });
