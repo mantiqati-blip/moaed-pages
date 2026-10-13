@@ -40,9 +40,9 @@ let gov = [], areas = [];
 const [g, a] = await Promise.all([F.getDocs(F.collection(db, 'governorates')), F.getDocs(F.collection(db, 'areas'))]);
 gov = g.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
 areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
-app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button></nav><div id="v"></div>';
-const tab = (n) => { $('t1').className = n === 1 ? 'on' : ''; $('t2').className = n === 2 ? 'on' : ''; n === 1 ? list() : form(); };
-$('t1').onclick = () => tab(1); $('t2').onclick = () => tab(2);
+app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab][n - 1](); };
+[1, 2, 3].forEach((i) => $('t' + i).onclick = () => tab(i));
 async function list() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   const s = await F.getDocs(F.collection(db, 'salons')), L = s.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -90,6 +90,35 @@ function form() {
       msg(e.msg || ({ 'slug-taken': 'هذا الرابط مستعمل لصالون آخر.', 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.', 'permission-denied': 'القواعد رفضت العملية.' }[e.code] || 'تعذر الإنشاء: ' + (e.code || e.message)), 'bad');
     } finally { $('go').disabled = false; if (sApp) App.deleteApp(sApp).catch(() => {}); }
   };
+}
+async function staffTab() {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
+  const ss = await F.getDocs(F.collection(db, 'salons')), P = [];
+  for (const sd of ss.docs) (await F.getDocs(F.collection(db, 'salons', sd.id, 'staff'))).docs.forEach((d) => { if (d.data().status === 'pending') P.push({ sid: sd.id, sname: sd.data().name, id: d.id, name: d.data().name }); });
+  if (!P.length) { v.innerHTML = '<div class="row">لا توجد طلبات موظفات معلّقة.</div>'; return; }
+  v.innerHTML = P.map((p, i) => `<form class="row" data-i="${i}"><b>${esc(p.name)}</b> <span class="m">— ${esc(p.sname)}</span>
+    <div class="g2"><div><label>اسم المستخدم</label><input dir="ltr" pattern="[a-z0-9]+" required></div><div><label>كلمة السر المؤقتة (٨ فأكثر وفيها رقم)</label><input dir="ltr" minlength="8" required></div></div>
+    <div class="m" role="status"></div><div class="s"><button class="p">موافقة وإنشاء الحساب</button><button type="button" data-rej="1">رفض</button></div></form>`).join('');
+  v.querySelectorAll('form').forEach((f) => {
+    const p = P[f.dataset.i], st = f.querySelector('.m[role]'), say = (t, c) => { st.className = 'm ' + c; st.textContent = t; };
+    f.querySelector('[data-rej]').onclick = async () => { if (!confirm('رفض الطلب وحذفه؟')) return; try { await F.deleteDoc(F.doc(db, 'salons', p.sid, 'staff', p.id)); await audit('staff.reject', p.sid + '/' + p.id); staffTab(); } catch (e) { say('تعذر الحذف: ' + e.code, 'bad'); } };
+    f.onsubmit = async (ev) => {
+      ev.preventDefault(); const [un, pw] = [...f.querySelectorAll('input')].map((i) => i.value.trim()); const uname = un.toLowerCase();
+      if (pw.length < 8 || !/\d/.test(pw)) return say('كلمة السر: ٨ خانات فأكثر وفيها رقم.', 'bad');
+      f.querySelectorAll('button').forEach((b) => b.disabled = true); say('جارٍ الإنشاء...', ''); let sApp = null;
+      try {
+        sApp = App.initializeApp(firebaseConfig, 'st-' + Date.now()); const sA = A.getAuth(sApp);
+        const uid = (await A.createUserWithEmailAndPassword(sA, uname + '@local.salon', pw)).user.uid; await A.signOut(sA);
+        try {
+          const b = F.writeBatch(db);
+          b.set(F.doc(db, 'users', uid), { role: 'staff', status: 'active', salonId: p.sid, staffId: p.id, name: p.name });
+          b.update(F.doc(db, 'salons', p.sid, 'staff', p.id), { status: 'active', uid }); await b.commit();
+        } catch (e) { throw { msg: `أُنشئ حساب ${uname} لكن فشل الربط (${e.code}). احذفي الحساب من Authentication ثم أعيدي.` }; }
+        await audit('staff.approve', p.sid + '/' + p.id).catch(() => {}); staffTab();
+      } catch (e) { say(e.msg || ({ 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.' }[e.code] || 'تعذر الإنشاء: ' + (e.code || e.message)), 'bad'); f.querySelectorAll('button').forEach((b) => b.disabled = false); }
+      finally { if (sApp) App.deleteApp(sApp).catch(() => {}); }
+    };
+  });
 }
 tab(1);
 </script></body></html>
