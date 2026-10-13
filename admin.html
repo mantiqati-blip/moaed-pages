@@ -24,7 +24,7 @@ label{display:block;font-weight:600;margin:12px 0 4px}input,select{width:100%;fo
 import { configured, auth, db } from './js/fb.js';
 import { firebaseConfig } from './js/firebase-config.js';
 import { cellKeys } from './js/cells.js';
-import { summarize, validatePayment, money } from './js/finance.js';
+import { summarize, validatePayment, money, effectiveFees, validFee } from './js/finance.js';
 import { toCSV, bookingColumns, download, dateOf, timeOf, STATUS } from './js/export.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -43,9 +43,9 @@ let gov = [], areas = [];
 const [g, a] = await Promise.all([F.getDocs(F.collection(db, 'governorates')), F.getDocs(F.collection(db, 'areas'))]);
 gov = g.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
 areas = a.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.order - y.order);
-app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button><button id="t7">طلبات الانضمام</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5, 6, 7].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings, appsTab][n - 1](); };
-[1, 2, 3, 4, 5, 6, 7].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = '<nav><button id="t1" class="on">الصالونات</button><button id="t2">إضافة صالون</button><button id="t3">الموظفات</button><button id="t4">الإلغاءات</button><button id="t5">الحسابات</button><button id="t6">كل الحجوزات</button><button id="t7">طلبات الانضمام</button><button id="t8">الرسوم</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [list, form, staffTab, cancelsTab, accountsTab, allBookings, appsTab, feesTab][n - 1](); };
+[1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => $('t' + i).onclick = () => tab(i));
 async function list() {
   const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>';
   const s = await F.getDocs(F.collection(db, 'salons')), L = s.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -237,6 +237,37 @@ async function appsTab() {
       } catch (e) { btn.disabled = false; say(e.msg || ({ 'auth/email-already-in-use': 'اسم المستخدم مستعمل.', 'auth/weak-password': 'كلمة السر ضعيفة.' }[e.code] || 'تعذر التنفيذ: ' + (e.code || e.message)), 'bad'); }
       finally { if (sApp) App.deleteApp(sApp).catch(() => {}); }
     };
+  });
+}
+async function feesTab() {
+  const v = $('v'); v.innerHTML = '<div class="row">جارٍ التحميل...</div>'; let set, L;
+  try { set = (await F.getDoc(F.doc(db, 'platform', 'settings'))).data() || {}; L = (await F.getDocs(F.collection(db, 'salons'))).docs.map((d) => ({ id: d.id, ...d.data() })); }
+  catch (e) { v.innerHTML = '<div class="row bad">تعذر التحميل: ' + esc(e.code) + '</div>'; return; }
+  const num = (s) => { const t = latin(String(s).trim().replace(/[,،\s]/g, '')); return t === '' ? null : Number(t); };
+  const sv = (n) => Number.isInteger(n) ? n : '';
+  v.innerHTML = `<div class="row"><b>الافتراضي للمنصة</b><div class="m">يسري على كل صالون ما له قيمة خاصة بالأسفل. التغيير يؤثر على الحجوزات الجديدة فقط، والحجوزات السابقة تبقى بقيمها.</div>
+    <div class="g2"><div><label>رسم الخدمة على الزبونة (دينار)</label><input id="gf" dir="ltr" inputmode="numeric" value="${sv(set.customerFee)}"></div><div><label>الاستقطاع من الصالون (دينار)</label><input id="gc" dir="ltr" inputmode="numeric" value="${sv(set.salonCut)}"></div></div>
+    <div class="m" id="gm" role="status"></div><button class="p" id="gs">حفظ الافتراضي</button></div>
+    <h3 style="font-size:15px;margin:18px 0 4px">قيم خاصة بكل صالون (اتركيها فارغة لاستعمال الافتراضي)</h3>` +
+    (L.length ? L.map((s, i) => { const e = effectiveFees(s, set); return `<div class="row" data-i="${i}"><div class="s"><b>${esc(s.name)}</b><span class="m">الفعلي: رسم ${money(e.customerFee ?? 0)} · استقطاع ${money(e.salonCut ?? 0)}</span></div>
+      <div class="g2"><div><label>رسم الخدمة</label><input data-k="customerFee" dir="ltr" inputmode="numeric" placeholder="${sv(set.customerFee)}" value="${sv(s.customerFee)}"></div><div><label>الاستقطاع</label><input data-k="salonCut" dir="ltr" inputmode="numeric" placeholder="${sv(set.salonCut)}" value="${sv(s.salonCut)}"></div></div>
+      <div class="m" data-m role="status"></div><button data-s="1">حفظ لهذا الصالون</button></div>`; }).join('') : '<div class="row">لا توجد صالونات.</div>');
+  $('gs').onclick = async () => {
+    const f = num($('gf').value), c = num($('gc').value), say = (t, k) => { $('gm').className = 'm ' + k; $('gm').textContent = t; };
+    if (!validFee(f) || !validFee(c)) return say('أدخلي رقمين صحيحين (٠ فأكثر).', 'bad');
+    if (!confirm(`حفظ الافتراضي: رسم ${f} واستقطاع ${c}؟ يؤثر على الصالونات بدون قيمة خاصة.`)) return;
+    try { await F.updateDoc(F.doc(db, 'platform', 'settings'), { customerFee: f, salonCut: c }); await audit('fees.default', `fee ${set.customerFee}>${f}; cut ${set.salonCut}>${c}`).catch(() => {}); say('تم الحفظ.', 'ok'); feesTab(); }
+    catch (e) { say('تعذر الحفظ: ' + (e.code || e.message), 'bad'); }
+  };
+  v.querySelectorAll('[data-s]').forEach((btn) => btn.onclick = async () => {
+    const row = btn.closest('.row'), s = L[row.dataset.i], m = row.querySelector('[data-m]'), say = (t, k) => { m.className = 'm ' + k; m.textContent = t; }, upd = {}, log = [];
+    for (const inp of row.querySelectorAll('input[data-k]')) { const k = inp.dataset.k, n = num(inp.value);
+      if (n !== null && !validFee(n)) return say('أدخلي رقمًا صحيحًا (٠ فأكثر) أو اتركيه فارغًا.', 'bad');
+      if (n === null) { if (Number.isInteger(s[k])) { upd[k] = F.deleteField(); log.push(`${k} ${s[k]}>افتراضي`); } } else if (n !== s[k]) { upd[k] = n; log.push(`${k} ${s[k] ?? 'افتراضي'}>${n}`); } }
+    if (!log.length) return say('ما في تغيير.', '');
+    btn.disabled = true;
+    try { await F.updateDoc(F.doc(db, 'salons', s.id), upd); await audit('fees.salon', s.id + ': ' + log.join('; ')).catch(() => {}); say('تم الحفظ. يسري على الحجوزات الجديدة.', 'ok'); setTimeout(feesTab, 700); }
+    catch (e) { btn.disabled = false; say('تعذر الحفظ: ' + (e.code || e.message), 'bad'); }
   });
 }
 tab(1);
