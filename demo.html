@@ -1,0 +1,93 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>موعد أنوثة</title><link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌸</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBF5F7;--card:#fff;--ink:#2A1722;--mute:#7A6571;--line:#EBDCE3;--ac:#B83A6B;--ac2:#8E2A52;--soft:#F8E3EC;--ok:#1E8E5A;--bad:#C0392B;--warn:#B7791F;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1A1017;--card:#26171F;--ink:#F6E9EF;--mute:#B79DAA;--line:#3A2630;--ac:#E26C9A;--ac2:#C94F80;--soft:#3A2230;--ok:#4CC38A;--bad:#F0776A;--warn:#E5B45C}}
+:root[data-theme=dark]{--bg:#1A1017;--card:#26171F;--ink:#F6E9EF;--mute:#B79DAA;--line:#3A2630;--ac:#E26C9A;--ac2:#C94F80;--soft:#3A2230;--ok:#4CC38A;--bad:#F0776A;--warn:#E5B45C}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 14px Cairo,Tahoma,Arial,sans-serif;padding-bottom:calc(72px + env(safe-area-inset-bottom,0px))}
+main,header{max-width:640px;margin:auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+h1{font-size:20px;font-weight:800;margin:0;color:var(--ac)}h2{font-size:16px;margin:16px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
+.btn{min-height:44px;border:0;border-radius:12px;padding:0 16px;font:600 14px Cairo,Tahoma,sans-serif;background:var(--ac);color:#fff;cursor:pointer}
+.btn.s{background:var(--soft);color:var(--ac2)}.btn:disabled{opacity:.5}
+.chip{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;margin:0 0 8px 8px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:600 14px Cairo,Tahoma,sans-serif;cursor:pointer}
+.chip.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.badge{display:inline-block;padding:2px 12px;border-radius:999px;font-size:12.5px;background:var(--soft);color:var(--ac2)}
+.badge.ok{color:var(--ok)}.badge.bad{color:var(--bad)}.m{color:var(--mute);font-size:12.5px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ph{height:96px;border-radius:12px;background:var(--soft);margin-bottom:8px}
+nav{position:fixed;bottom:0;inset-inline:0;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{flex:1;min-height:56px;border:0;background:none;color:var(--mute);font:600 12.5px Cairo,Tahoma,sans-serif;cursor:pointer}nav .on{color:var(--ac)}
+.sheet{position:fixed;inset:0;background:#0006;display:none;align-items:flex-end;z-index:9}.sheet.open{display:flex}
+.sheet>div{background:var(--card);width:100%;max-width:640px;margin:auto;border-radius:22px 22px 0 0;padding:16px;max-height:88%;overflow:auto}
+.empty{text-align:center;color:var(--mute);padding:32px 0}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head><body>
+<header><h1>موعد أنوثة</h1><button class="btn s" id="th">وضع داكن</button></header>
+<main id="v"></main>
+<nav id="nav"></nav><div class="sheet" id="sh"><div id="sb"></div></div>
+<script>
+// ===== الإعدادات: القيم الفارغة = "يجب تحديدها" من صاحب المشروع =====
+const CFG={customerFee:1000,salonCut:1000,supportWhatsapp:null,DEMO:true,cutoffH:2};
+const T={nearest:'أقرب موعد متاح',any:'أي موظفة متاحة',noSlots:'ما كو أوقات متاحة بهذا اليوم، جربي يوم ثاني.',empty:'ما عندج حجوزات بعد. احجزي أول موعد!'};
+const ar=n=>String(n).replace(/\d/g,d=>'٠١٢٣٤٥٦٧٨٩'[d]);
+const money=n=>ar(n.toLocaleString('en'))+' د.ع';
+const tm=m=>ar(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'));
+const SALONS=[{id:'s1',slug:'yasmin-salon',name:'صالون الياسمين',area:'المنصور',open:600,close:1080,
+ services:[{id:'a',name:'قص شعر',price:15000,d:45},{id:'b',name:'صبغة',price:40000,d:90},{id:'c',name:'مكياج',price:30000,d:60}],staff:[{id:'u1',name:'نور'},{id:'u2',name:'سارة'}]},
+ {id:'s2',slug:'beit-aljamal',name:'بيت الجمال',area:'الكرادة',open:660,close:1200,
+ services:[{id:'a',name:'مانيكير',price:10000,d:30},{id:'b',name:'عناية بشرة',price:25000,d:60}],staff:[{id:'u3',name:'هدى'}]}];
+// وضع الصالون الواحد: ?salon=slug يعرض صالونًا واحدًا بلا السوق ولا قائمة الصالونات، و?src= لتتبع المصدر
+const Q=new URLSearchParams(location.search),SRC=['qr','tiktok','whatsapp','facebook','instagram'].includes(Q.get('src'))?Q.get('src'):null,ONLY=Q.get('salon')||(location.pathname.match(/^\/s\/([a-z0-9-]+)/)||[])[1];
+let tab=ONLY?1:0,booked=[],sel=null,B={};
+// ===== منطق الأوقات (نفس slots.js) =====
+const ov=(a,b)=>a.s<b.e&&b.s<a.e;
+function slots(salon,staffId,date,dur){const bl=booked.filter(x=>x.staff===staffId&&x.date===date).map(x=>({s:x.s,e:x.e}));
+ const now=date===dk(0)?new Date().getHours()*60+new Date().getMinutes():0;const c=new Set();
+ for(let t=salon.open;t<salon.close;t+=30)c.add(t);bl.forEach(b=>c.add(b.e));
+ return[...c].sort((a,b)=>a-b).filter(t=>t>=now&&t+dur<=salon.close&&!bl.some(b=>ov({s:t,e:t+dur},b)))}
+function dk(i){const d=new Date(Date.now()+i*864e5);return d.toISOString().slice(0,10)}
+function avail(salon,staff,date,dur){if(staff!=='any')return slots(salon,staff,date,dur).map(t=>({t,u:staff}));
+ const m=new Map();salon.staff.forEach(u=>slots(salon,u.id,date,dur).forEach(t=>{if(!m.has(t))m.set(t,u.id)}));
+ return[...m].sort((a,b)=>a[0]-b[0]).map(([t,u])=>({t,u}))}
+// ===== الواجهة =====
+const V=document.getElementById('v');
+function render(){
+ if(ONLY&&!SALONS.some(x=>x.slug==ONLY)){document.getElementById('nav').innerHTML='';V.innerHTML='<div class="empty"><h2>الحجز غير متاح حاليًا</h2><p>تصفحي صالونات أخرى بمنطقتج.</p></div>';return}
+ if(ONLY&&tab==1&&!sel){sel=SALONS.find(x=>x.slug==ONLY).id;B={sv:[]}}
+ document.getElementById('nav').innerHTML=['السوق','الصالونات','حجوزاتي','حسابي'].map((n,i)=>ONLY&&i==0?'':`<button class="${i==tab?'on':''}" onclick="tab=${i};sel=null;render()">${ONLY&&i==1?'الصالون':n}</button>`).join('');
+ if(tab==0)V.innerHTML=`<div class="empty">سوق المتاجر النسائية يُربط بتاجرلي في المرحلة ٤.</div>`;
+ if(tab==1)V.innerHTML=sel?salonPage():`<h2>الصالونات القريبة</h2>`+SALONS.map(s=>`<div class="card"><div class="ph"></div><div class="row"><b>${s.name}</b><span class="badge">${s.area}</span></div><p class="m">${s.services.length==1?'':ar(s.services.length)+' خدمات'} • ${tm(s.open)} – ${tm(s.close)}</p><button class="btn" onclick="sel='${s.id}';B={sv:[]};render()">عرض الصالون</button></div>`).join('');
+ if(tab==2)V.innerHTML=booked.length?booked.map((b,i)=>`<div class="card"><div class="row"><b>${b.salon}</b><span class="badge ${b.st=='ملغي'?'bad':'ok'}">${b.st}</span></div><p class="m">${ar(b.date)} • ${tm(b.s)} • ${b.names}</p><p class="m">رمز الإكمال: <b>${ar(b.code)}</b> — أعطيه للموظفة بعد الخدمة.</p><button class="btn s" onclick="cancelReq(${i})">طلب إلغاء</button></div>`).join(''):`<div class="empty">${T.empty}</div>`;
+ if(tab==3)V.innerHTML=`<div class="card"><b>حسابي</b><p class="m">عدد مرات عدم الحضور: ${ar(0)}</p><p class="m">الدعم: ${CFG.supportWhatsapp?ar(CFG.supportWhatsapp):'سيُضاف رقم الدعم عند تحديده'}</p></div>`}
+function salonPage(){const s=SALONS.find(x=>x.id==sel);
+ return`${ONLY?'':'<button class="btn s" onclick="sel=null;render()">رجوع</button>'}<h2>${s.name}</h2><p class="m">${s.area}</p>`+
+ s.services.map(v=>`<div class="card row"><label><input type="checkbox" onchange="tg('${v.id}',this.checked)"> ${v.name}<div class="m">${ar(v.d)} دقيقة</div></label><b>${money(v.price)}</b></div>`).join('')+`<button class="btn" id="go" onclick="openSheet()">احجزي موعدج</button>`}
+function tg(id,on){B.sv=on?[...B.sv,id]:B.sv.filter(x=>x!=id)}
+function openSheet(){const s=SALONS.find(x=>x.id==sel);if(!B.sv.length)return alert('اختاري خدمة أولًا.');B.staff='any';B.day=0;B.t=null;sheet(s)}
+function sheet(s){const sv=s.services.filter(x=>B.sv.includes(x.id)),dur=sv.reduce((n,x)=>n+x.d,0),tot=sv.reduce((n,x)=>n+x.price,0);
+ const list=avail(s,B.staff,dk(B.day),dur),first=list[0];
+ const fee=CFG.customerFee??(CFG.DEMO?0:null);
+ document.getElementById('sb').innerHTML=`<h2>احجزي موعدج</h2><div class="m">الموظفة</div>
+ <button class="chip ${B.staff=='any'?'on':''}" onclick="B.staff='any';B.t=null;sheet(SALONS.find(x=>x.id==sel))">${T.any}</button>${s.staff.map(u=>`<button class="chip ${B.staff==u.id?'on':''}" onclick="B.staff='${u.id}';B.t=null;sheet(SALONS.find(x=>x.id==sel))">${u.name}</button>`).join('')}
+ <div class="m">اليوم</div>${[0,1,2,3,4].map(i=>`<button class="chip ${B.day==i?'on':''}" onclick="B.day=${i};B.t=null;sheet(SALONS.find(x=>x.id==sel))">${i?ar(dk(i).slice(5)):'اليوم'}</button>`).join('')}
+ <div class="m">الوقت ${first?`— <span class="badge ok">${T.nearest}: ${tm(first.t)}</span>`:''}</div>
+ ${list.length?list.map(o=>`<button class="chip ${B.t==o.t?'on':''}" onclick="B.t=${o.t};B.u='${o.u}';sheet(SALONS.find(x=>x.id==sel))">${tm(o.t)}</button>`).join(''):`<p class="empty">${T.noSlots}</p>`}
+ <div class="card"><div class="row"><span>الخدمات (${ar(dur)} دقيقة)</span><b>${money(tot)}</b></div><div class="row"><span>رسم الخدمة</span><b>${fee==null?'غير محدد':money(fee)}</b></div><div class="row"><b>الإجمالي</b><b>${fee==null?'—':money(tot+fee)}</b></div>${fee==null?'<p class="m" style="color:var(--warn)">الحجز متوقف حتى يحدد صاحب المشروع رسم الخدمة.</p>':CFG.customerFee==null?'<p class="m">(وضع تجريبي: الرسم صفر)</p>':''}</div>
+ <button class="btn" ${B.t==null||fee==null?'disabled':''} onclick="confirmB()">تأكيد الحجز</button> <button class="btn s" onclick="closeS()">إغلاق</button>`;
+ document.getElementById('sh').classList.add('open')}
+function closeS(){document.getElementById('sh').classList.remove('open')}
+function confirmB(){const s=SALONS.find(x=>x.id==sel),sv=s.services.filter(x=>B.sv.includes(x.id)),dur=sv.reduce((n,x)=>n+x.d,0),date=dk(B.day);
+ if(booked.filter(x=>x.st!='ملغي').length>=3)return alert('وصلتي للحد الأقصى: ٣ حجوزات نشطة.');
+ if(!slots(s,B.u,date,dur).includes(B.t)){alert('هذا الوقت انحجز قبل شوي، اختاري وقت ثاني.');return sheet(s)} // منع المزدوج
+ booked.push({salon:s.name,staff:B.u,date,s:B.t,e:B.t+dur,names:sv.map(x=>x.name).join('، '),code:String(1000+Math.floor(Math.random()*9000)),st:'مؤكد',src:SRC});
+ closeS();tab=2;sel=null;render()}
+function cancelReq(i){const b=booked[i];if(b.s-new Date().getHours()*60<CFG.cutoffH*60&&b.date==dk(0))return alert('الإلغاء غير متاح قبل الموعد بأقل من ساعتين، تواصلي مع الصالون.');
+ const r=prompt('اكتبي سبب طلب الإلغاء:');if(r){b.st='بانتظار الصالون';render()}}
+document.getElementById('th').onclick=()=>{const d=document.documentElement;d.dataset.theme=(d.dataset.theme=='dark'||(!d.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches))?'light':'dark'};
+render();
+</script></body></html>
