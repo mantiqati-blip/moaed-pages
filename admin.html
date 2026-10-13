@@ -25,7 +25,7 @@ import { configured, auth, db } from './js/fb.js';
 import { firebaseConfig } from './js/firebase-config.js';
 import { cellKeys } from './js/cells.js';
 import { summarize, validatePayment, money, effectiveFees, validFee, currentPeriod, canClose, periodRecord } from './js/finance.js';
-import { toCSV, bookingColumns, download, dateOf, timeOf, STATUS } from './js/export.js';
+import { toXLSX, downloadX, bookingColumns, dateOf, timeOf, STATUS } from './js/export.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const AD = '٠١٢٣٤٥٦٧٨٩', latin = (s) => String(s).replace(/[٠-٩]/g, (d) => AD.indexOf(d));
@@ -207,7 +207,7 @@ async function allBookings() {
     (L.length > 100 ? `<div class="m">تظهر أول ١٠٠ فقط. التصدير يشمل كل النتيجة (${L.length}).</div>` : '') + '<div id="msg" class="m" role="status"></div>';
   [['fs', 'salon'], ['ft', 'status'], ['ff', 'from'], ['fe', 'to']].forEach(([i, k]) => $(i).onchange = () => { bkF[k] = $(i).value; allBookings(); });
   $('ex').onclick = async () => {
-    download(`bookings-${dateOf(Date.now())}.csv`, toCSV(L, bookingColumns({ salons })));
+    downloadX(`bookings-${dateOf(Date.now())}.xlsx`, toXLSX(L, bookingColumns({ salons })));
     await audit('export.bookings', `${L.length} rows`).catch(() => {}); $('msg').className = 'm ok'; $('msg').textContent = `صُدّر ${L.length} حجز.`;
   };
 }
