@@ -31,6 +31,11 @@ const A = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth
 const F = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
 try {
   await auth.authStateReady?.(); if (!auth.currentUser) await A.signInAnonymously(auth);
+  F.getDoc(F.doc(db, 'platform', 'settings')).then((d) => {                       // رقم الدعم: يحدده الأدمن، ولا يظهر شيء إن كان فارغًا
+    const n = String(d.data()?.supportWhatsapp || ''); if (!/^07[3-9][0-9]{8}$/.test(n)) return;
+    const a = document.createElement('a'); a.href = 'https://wa.me/964' + n.slice(1); a.target = '_blank'; a.rel = 'noopener'; a.style.color = 'var(--ac)'; a.textContent = 'الدعم (واتساب)';
+    document.querySelector('footer')?.prepend(a);
+  }).catch(() => {});
   if (my) {
     const sets0 = (await F.getDoc(F.doc(db, 'platform', 'settings'))).data() || {}, cut = Number(sets0.cancelCutoffHours ?? 2);
     const L = (await F.getDocs(F.query(F.collection(db, 'bookings'), F.where('customerUid', '==', auth.currentUser.uid)))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.start - a.start);
