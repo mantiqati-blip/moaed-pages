@@ -42,5 +42,15 @@ try {
     <div class="card ${match ? 'ok' : 'bad'}" role="status">${match ? 'مجموع الكشف يطابق الأرقام المحفوظة عند التصفير بالدينار تمامًا.' : 'تنبيه: مجموع الكشف لا يطابق الأرقام المحفوظة عند التصفير. راجعي الإدارة قبل الاعتماد.'}</div>
     <div class="noprint"><button id="pr">طباعة / حفظ PDF</button> <a class="b" href="javascript:history.back()" style="background:var(--soft);color:var(--ink)">رجوع</a></div>`;
   document.getElementById('pr').onclick = () => print();
+  // اعتراض الصالون (خلال ٣ أيام من التصفير)، والقرار للأدمن
+  const ud = await F.getDoc(F.doc(db, 'users', auth.currentUser.uid)).catch(() => null), role = ud?.data()?.role, ob = await F.getDoc(F.doc(db, 'salons', sid, 'periods', pid, 'objections', 'main')).catch(() => null);
+  const box = document.createElement('div'); box.className = 'card noprint'; box.setAttribute('role', 'region');
+  const open = Date.now() <= to + 3 * 864e5;
+  if (ob?.exists()) { const o = ob.data(), st = { open: 'قيد النظر', accepted: 'مقبول', rejected: 'مرفوض' }[o.status] || o.status; box.innerHTML = `<h2>اعتراض الصالون: ${st}</h2><div class=\"m\">${esc(o.reason)}</div>${o.decision ? `<div class=\"s\"><span>قرار الأدمن</span><b>${esc(o.decision)}</b></div>` : ''}`; app.append(box); }
+  else if (role === 'owner' && open) {
+    box.innerHTML = `<h2>اعتراض على الكشف</h2><div class=\"m\">يحق لك الاعتراض مرة واحدة خلال ٣ أيام من التصفير (حتى ${day(to + 3 * 864e5)}).</div><textarea id=\"ot\" rows=\"3\" maxlength=\"500\" style=\"width:100%;font:inherit;margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)\" aria-label=\"سبب الاعتراض\"></textarea><button id=\"ob\">إرسال الاعتراض</button><div id=\"om\" class=\"m\" role=\"status\"></div>`; app.append(box);
+    document.getElementById('ob').onclick = async (e) => { const t = document.getElementById('ot').value.trim(), m = document.getElementById('om'); if (t.length < 5) { m.className = 'm bad'; m.textContent = 'اكتبي السبب (٥ أحرف على الأقل).'; return; } e.target.disabled = true;
+      try { await F.setDoc(F.doc(db, 'salons', sid, 'periods', pid, 'objections', 'main'), { reason: t, by: auth.currentUser.uid, at: Date.now(), status: 'open' }); location.reload(); } catch (x) { e.target.disabled = false; m.className = 'm bad'; m.textContent = 'تعذر الإرسال: ' + (x.code || x.message); } }; }
+  else if (role === 'owner') { box.innerHTML = '<div class=\"m\">انتهت مهلة الاعتراض (٣ أيام). الكشف معتمد.</div>'; app.append(box); }
 } catch (e) { if (e) fail('تعذر تحميل الكشف: ' + esc(e.code || e.message)); }
 </script></body></html>
