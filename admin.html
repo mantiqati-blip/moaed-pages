@@ -248,6 +248,9 @@ async function feesTab() {
   v.innerHTML = `<div class="row"><b>الافتراضي للمنصة</b><div class="m">يسري على كل صالون ما له قيمة خاصة بالأسفل. التغيير يؤثر على الحجوزات الجديدة فقط، والحجوزات السابقة تبقى بقيمها.</div>
     <div class="g2"><div><label>رسم الخدمة على الزبونة (دينار)</label><input id="gf" dir="ltr" inputmode="numeric" value="${sv(set.customerFee)}"></div><div><label>الاستقطاع من الصالون (دينار)</label><input id="gc" dir="ltr" inputmode="numeric" value="${sv(set.salonCut)}"></div></div>
     <div class="m" id="gm" role="status"></div><button class="p" id="gs">حفظ الافتراضي</button></div>
+    <div class="row"><b>رقم الدعم (واتساب)</b><div class="m">يظهر للزبونات بتذييل صفحة الحجز. اتركيه فارغًا لإخفائه.</div>
+    <div><label>الرقم (07xxxxxxxxx)</label><input id="sw" dir="ltr" inputmode="numeric" value="${esc(set.supportWhatsapp || '')}"></div>
+    <div class="m" id="sm" role="status"></div><button class="p" id="ss">حفظ رقم الدعم</button></div>
     <h3 style="font-size:15px;margin:18px 0 4px">قيم خاصة بكل صالون (اتركيها فارغة لاستعمال الافتراضي)</h3>` +
     (L.length ? L.map((s, i) => { const e = effectiveFees(s, set); return `<div class="row" data-i="${i}"><div class="s"><b>${esc(s.name)}</b><span class="m">الفعلي: رسم ${money(e.customerFee ?? 0)} · استقطاع ${money(e.salonCut ?? 0)}</span></div>
       <div class="g2"><div><label>رسم الخدمة</label><input data-k="customerFee" dir="ltr" inputmode="numeric" placeholder="${sv(set.customerFee)}" value="${sv(s.customerFee)}"></div><div><label>الاستقطاع</label><input data-k="salonCut" dir="ltr" inputmode="numeric" placeholder="${sv(set.salonCut)}" value="${sv(s.salonCut)}"></div></div>
@@ -257,6 +260,12 @@ async function feesTab() {
     if (!validFee(f) || !validFee(c)) return say('أدخلي رقمين صحيحين (٠ فأكثر).', 'bad');
     if (!confirm(`حفظ الافتراضي: رسم ${f} واستقطاع ${c}؟ يؤثر على الصالونات بدون قيمة خاصة.`)) return;
     try { await F.updateDoc(F.doc(db, 'platform', 'settings'), { customerFee: f, salonCut: c }); await audit('fees.default', `fee ${set.customerFee}>${f}; cut ${set.salonCut}>${c}`).catch(() => {}); say('تم الحفظ.', 'ok'); feesTab(); }
+    catch (e) { say('تعذر الحفظ: ' + (e.code || e.message), 'bad'); }
+  };
+  $('ss').onclick = async () => {
+    const say = (t, k) => { $('sm').className = 'm ' + k; $('sm').textContent = t; }, n = latin($('sw').value.trim().replace(/[\s-]/g, ''));
+    if (n !== '' && !/^07[3-9][0-9]{8}$/.test(n)) return say('الرقم لازم يكون بصيغة 07xxxxxxxxx.', 'bad');
+    try { await F.updateDoc(F.doc(db, 'platform', 'settings'), { supportWhatsapp: n === '' ? F.deleteField() : n }); await audit('settings.support', n || 'removed').catch(() => {}); say('تم الحفظ.', 'ok'); }
     catch (e) { say('تعذر الحفظ: ' + (e.code || e.message), 'bad'); }
   };
   v.querySelectorAll('[data-s]').forEach((btn) => btn.onclick = async () => {
