@@ -23,7 +23,7 @@ import { configured, auth, db, app as fbApp } from './js/fb.js';
 import { bookSlot, rescheduleBooking, acceptMove } from './js/booking.js';
 import { slotsFor, fmt } from './js/avail.js';
 import { effectiveFees } from './js/finance.js';
-import { filterSalons, govOptions, areaOptions, itemListJsonLd } from './js/directory.js';
+import { filterSalons, govOptions, areaOptions, itemListJsonLd, topServices } from './js/directory.js';
 const app = document.getElementById('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n) => Number(n).toLocaleString('en') + ' د.ع';
@@ -108,16 +108,24 @@ try {
     const G = nameOf(gv), R = nameOf(ar), L = (ps?.docs || []).map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.name).sort((x, y) => x.name.localeCompare(y.name, 'ar'));
     const where = (x) => [R[x.areaId], G[x.governorateId]].filter(Boolean).join('، ');
     const card = (x) => `<a class="row" href="?salon=${encodeURIComponent(x.id)}"><b>${esc(x.name)}</b>${where(x) ? `<div class="m">${esc(where(x))}</div>` : ''}</a>`, gOpts = govOptions(L, G);
-    app.innerHTML = '<h2>احجزي موعدك</h2>' + (L.length > 1 ? `<div class="row"><label for="dq" class="m">ابحثي باسم الصالون</label><input type="text" id="dq" autocomplete="off" placeholder="مثال: الأميرة"><div class="chips" style="gap:8px"><select id="dg" aria-label="المحافظة" style="flex:1;margin:0"><option value="">كل المحافظات</option>${gOpts.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select><select id="da" aria-label="المنطقة" style="flex:1;margin:0" disabled><option value="">كل المناطق</option></select></div><div class="m" id="dc" role="status" style="margin-top:8px"></div></div>` : '') + '<div id="sl">' + (L.length ? '' : '<div class="row">لا توجد صالونات متاحة بعد.</div>') + '</div>'
+    app.innerHTML = '<h2>احجزي موعدك</h2>' + (L.length > 1 ? `<div class="row"><label for="dq" class="m">ابحثي باسم الصالون</label><input type="text" id="dq" autocomplete="off" placeholder="مثال: الأميرة"><div class="chips" style="gap:8px"><select id="dg" aria-label="المحافظة" style="flex:1;margin:0"><option value="">كل المحافظات</option>${gOpts.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select><select id="da" aria-label="المنطقة" style="flex:1;margin:0" disabled><option value="">كل المناطق</option></select></div><label for="ds" class="m" style="margin-top:8px;display:block">ابحثي عن خدمة</label><input type="text" id="ds" autocomplete="off" placeholder="مثال: صبغة" disabled><div class="chips" id="dsc" style="margin-top:8px"></div><div class="m" id="dc" role="status" style="margin-top:8px"></div></div>` : '') + '<div id="sl">' + (L.length ? '' : '<div class="row">لا توجد صالونات متاحة بعد.</div>') + '</div>'
       + '<h2>لصاحبات الصالونات والعيادات</h2><a class="row" href="join.html"><b>قدّمي طلب انضمام</b><div class="m">سجّلي صالونك أو عيادتك، وتتواصل معك الإدارة للتحقق.</div></a><a class="row" href="login.html"><b>تسجيل الدخول</b><div class="m">صاحبة الصالون، الموظفة، أو الإدارة.</div></a>';
     if (L.length) {
       const el = (i) => document.getElementById(i), base = location.origin + location.pathname;
       const paint = () => {
-        const R = filterSalons(L, { q: el('dq')?.value || '', g: el('dg')?.value || '', a: el('da')?.value || '' });
-        el('sl').innerHTML = R.length ? R.map(card).join('') : '<div class="row">لا توجد نتائج. جرّبي تغيير البحث أو المحافظة.</div>';
+        const R = filterSalons(L, { q: el('dq')?.value || '', g: el('dg')?.value || '', a: el('da')?.value || '', s: el('ds')?.value || '' });
+        el('sl').innerHTML = R.length ? R.map(card).join('') : '<div class="row">لا توجد نتائج. جرّبي تغيير البحث أو المحافظة أو الخدمة.</div>';
         if (el('dc')) el('dc').textContent = R.length === L.length ? `${L.length} صالون` : `${R.length} من ${L.length} صالون`;
       };
       if (el('dq')) {
+        // خدمات كل صالون (قراءتها عامة بالقواعد): تُحمَّل بعد ظهور القائمة، وأول 60 صالون فقط حتى لا تكثر القراءات
+        Promise.all(L.slice(0, 60).map((x) => F.getDocs(F.collection(db, 'salons', x.id, 'services')).then((r) => { x.svc = r.docs.map((d) => d.data()).filter((v) => v.active && v.name).map((v) => v.name); }).catch(() => {}))).then(() => {
+          const T = topServices(L); el('ds').disabled = false;
+          el('dsc').innerHTML = T.map((t) => `<button type="button" class="chip" aria-pressed="false" data-s="${esc(t)}">${esc(t)}</button>`).join('');
+          el('dsc').querySelectorAll('button').forEach((b) => b.onclick = () => { const on = b.getAttribute('aria-pressed') !== 'true'; el('ds').value = on ? b.dataset.s : ''; el('dsc').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', x === b && on)); paint(); });
+          paint();
+        });
+        el('ds').oninput = () => { el('dsc').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', 'false')); paint(); };
         el('dq').oninput = paint; el('da').onchange = paint;
         el('dg').onchange = () => { const o = areaOptions(L, el('dg').value, R); el('da').innerHTML = '<option value="">كل المناطق</option>' + o.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join(''); el('da').disabled = !o.length; paint(); };
       }
