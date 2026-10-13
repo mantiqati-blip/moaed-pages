@@ -18,7 +18,7 @@ select,input[type=text],input[type=tel]{font:inherit;width:100%;padding:12px;bor
 </style></head><body><header class="s"><b>موعد أنوثة</b><a href="?my=1" style="color:var(--ac);font-weight:700">حجوزاتي</a></header><main id="app"><div class="row">جارٍ التحميل...</div></main><footer style="max-width:560px;margin:8px auto 24px;padding:0 16px;font-size:13px;display:flex;gap:16px;justify-content:center"><a href="terms.html" style="color:var(--mute)">الشروط</a><a href="privacy.html" style="color:var(--mute)">الخصوصية</a></footer>
 <script type="module">
 import { configured, auth, db } from './js/fb.js';
-import { bookSlot, rescheduleBooking } from './js/booking.js';
+import { bookSlot, rescheduleBooking, acceptMove } from './js/booking.js';
 import { slotsFor, fmt } from './js/avail.js';
 const app = document.getElementById('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -39,9 +39,10 @@ try {
     const when = (t) => { const d = new Date(t + 3 * 36e5); return d.toISOString().slice(0, 10) + ' · ' + String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0'); };
     app.innerHTML = '<h2 style="font-size:20px;margin-top:8px">حجوزاتي</h2><div class="m">تظهر هنا الحجوزات التي تمت من هذا المتصفح فقط.</div>' + (L.length ? L.map((b) => {
       const can = b.status === 'confirmed' && b.source === 'online' && b.start - Date.now() >= cut * 36e5;
-      const rs = can && !b.rescheduleCount && SD[b.salonId]?.hours;
+      const rs = can && !b.rescheduleCount && SD[b.salonId]?.hours, mp = b.status === 'confirmed' && b.moveProposal;
       return `<div class="row"><div class="s"><b>${esc(nm[b.salonId])}</b><span class="m">${SA[b.status] || esc(b.status)}</span></div><div class="m">${when(b.start)} · ${esc((b.services || []).map((x) => x.name).join('، '))}</div>
       ${codes[b.id] ? `<div class="m">رمز الإكمال: <b dir="ltr">${esc(codes[b.id])}</b></div>` : ''}
+      ${mp ? `<div class="row" style="background:var(--soft);margin:8px 0"><b>الصالون اقترح نقل موعدك</b><div class="m">إلى ${when(mp.start)}</div><div class="m">السبب: ${esc(mp.reason)}</div><div class="s" style="gap:8px;margin-top:8px"><button data-mv="${esc(b.id)}" data-y="1" style="flex:1">موافقة</button><button data-mv="${esc(b.id)}" data-y="0" style="flex:1;background:transparent;color:var(--ac);border:1px solid var(--ac)">رفض (يتحول لطلب إلغاء)</button></div></div>` : ''}
       ${rs ? `<button data-rs="${esc(b.id)}" style="background:transparent;color:var(--ac);border:1px solid var(--ac)">تغيير الموعد (مرة واحدة)</button><div data-rp="${esc(b.id)}"></div>` : b.rescheduleCount && b.status === 'confirmed' ? '<div class="m">تم تعديل موعد هذا الحجز مرة، ولا يمكن تعديله ثانية.</div>' : ''}
       ${can ? `<button data-id="${esc(b.id)}" style="background:transparent;color:var(--ac);border:1px solid var(--ac)">طلب إلغاء</button>` : b.status === 'confirmed' && b.source === 'online' ? `<div class="m">انتهت مهلة الإلغاء (${cut} ساعة قبل الموعد)، تواصلي مع الصالون.</div>` : ''}</div>`;
     }).join('') : '<div class="row">لا توجد حجوزات.</div>') + '<a class="row" href="./">الصالونات</a><div id="mg" class="m" role="status"></div>';
@@ -68,6 +69,15 @@ try {
           });
         } catch (e) { tm.innerHTML = '<div class="m bad">تعذر تحميل الأوقات.</div>'; }
       });
+    });
+    app.querySelectorAll('button[data-mv]').forEach((btn) => btn.onclick = async () => {
+      const id = btn.dataset.mv, yes = btn.dataset.y === '1', say = (t) => { document.getElementById('mg').textContent = t; };
+      if (!yes) { const r = (prompt('سبب الرفض (إلزامي):') || '').trim(); if (!r) return; btn.disabled = true;
+        try { await F.updateDoc(F.doc(db, 'bookings', id), { status: 'cancel_requested', cancelReason: 'رفضت نقل الموعد: ' + r, cancelRequestedAt: Date.now(), moveProposal: F.deleteField() }); location.reload(); }
+        catch (e) { btn.disabled = false; say('تعذر الإرسال: ' + (e.code || '')); } return; }
+      btn.disabled = true;
+      try { await acceptMove({ db, fs: { doc: F.doc, runTransaction: F.runTransaction, deleteField: F.deleteField }, user: auth.currentUser, bookingId: id }); location.reload(); }
+      catch (e) { btn.disabled = false; say({ SLOT_TAKEN: 'الوقت المقترح لم يعد متاحًا. تواصلي مع الصالون أو اطلبي الإلغاء.', PAST: 'انتهى الوقت المقترح.' }[e.message] || ('تعذر النقل: ' + (e.code || e.message))); }
     });
   } else if (!slug) {
     const q = await F.getDocs(F.query(F.collection(db, 'salons'), F.where('status', '==', 'active')));
