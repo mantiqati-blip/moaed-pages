@@ -15,7 +15,7 @@ button{font:inherit;font-weight:700;width:100%;background:var(--ac);color:#fff;b
 select,input[type=text],input[type=tel]{font:inherit;width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);margin:4px 0 10px}.bad{color:#c0392b}.ok{color:#1a7f4b}
 .code{font-size:34px;font-weight:700;letter-spacing:6px;text-align:center;color:var(--ac)}
 .h{display:flex;justify-content:space-between;padding:4px 0}.t{font-weight:700;font-size:18px}
-</style></head><body><header><b>موعد أنوثة</b></header><main id="app"><div class="row">جارٍ التحميل...</div></main>
+</style></head><body><header class="s"><b>موعد أنوثة</b><a href="?my=1" style="color:var(--ac);font-weight:700">حجوزاتي</a></header><main id="app"><div class="row">جارٍ التحميل...</div></main>
 <script type="module">
 import { configured, auth, db } from './js/fb.js';
 import { bookSlot } from './js/booking.js';
@@ -23,14 +23,32 @@ import { slotsFor, fmt } from './js/avail.js';
 const app = document.getElementById('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n) => Number(n).toLocaleString('en') + ' د.ع';
-const slug = new URLSearchParams(location.search).get('salon');
+const slug = new URLSearchParams(location.search).get('salon'), my = new URLSearchParams(location.search).get('my');
 const unavailable = () => { app.innerHTML = '<div class="row"><b>الحجز غير متاح حاليًا.</b><div class="m">الصالون غير موجود أو متوقف مؤقتًا.</div></div>'; };
 if (!configured) { app.innerHTML = '<div class="row">الموقع قيد الإعداد.</div>'; throw 0; }
 const A = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
 const F = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
 try {
   await auth.authStateReady?.(); if (!auth.currentUser) await A.signInAnonymously(auth);
-  if (!slug) {
+  if (my) {
+    const sets0 = (await F.getDoc(F.doc(db, 'platform', 'settings'))).data() || {}, cut = Number(sets0.cancelCutoffHours ?? 2);
+    const L = (await F.getDocs(F.query(F.collection(db, 'bookings'), F.where('customerUid', '==', auth.currentUser.uid)))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.start - a.start);
+    const nm = {}, codes = {}, SA = { confirmed: 'مؤكد', completed: 'تمت الخدمة', no_show: 'لم تحضري', cancel_requested: 'طلب الإلغاء قيد المراجعة', pending_admin: 'طلب الإلغاء قيد المراجعة', cancelled: 'ملغي' };
+    for (const id of new Set(L.map((b) => b.salonId))) { try { nm[id] = (await F.getDoc(F.doc(db, 'salons', id))).data()?.name || id; } catch (e) { nm[id] = id; } }
+    await Promise.all(L.filter((b) => b.status === 'confirmed').map(async (b) => { try { codes[b.id] = (await F.getDoc(F.doc(db, 'bookings', b.id, 'private', 'code'))).data()?.code; } catch (e) {} }));
+    const when = (t) => { const d = new Date(t + 3 * 36e5); return d.toISOString().slice(0, 10) + ' · ' + String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0'); };
+    app.innerHTML = '<h2 style="font-size:20px;margin-top:8px">حجوزاتي</h2><div class="m">تظهر هنا الحجوزات التي تمت من هذا المتصفح فقط.</div>' + (L.length ? L.map((b) => {
+      const can = b.status === 'confirmed' && b.source === 'online' && b.start - Date.now() >= cut * 36e5;
+      return `<div class="row"><div class="s"><b>${esc(nm[b.salonId])}</b><span class="m">${SA[b.status] || esc(b.status)}</span></div><div class="m">${when(b.start)} · ${esc((b.services || []).map((x) => x.name).join('، '))}</div>
+      ${codes[b.id] ? `<div class="m">رمز الإكمال: <b dir="ltr">${esc(codes[b.id])}</b></div>` : ''}
+      ${can ? `<button data-id="${esc(b.id)}" style="background:transparent;color:var(--ac);border:1px solid var(--ac)">طلب إلغاء</button>` : b.status === 'confirmed' && b.source === 'online' ? `<div class="m">انتهت مهلة الإلغاء (${cut} ساعة قبل الموعد)، تواصلي مع الصالون.</div>` : ''}</div>`;
+    }).join('') : '<div class="row">لا توجد حجوزات.</div>') + '<a class="row" href="./">الصالونات</a><div id="mg" class="m" role="status"></div>';
+    app.querySelectorAll('button[data-id]').forEach((b) => b.onclick = async () => {
+      const r = (prompt('سبب الإلغاء (إلزامي):') || '').trim(); if (!r) return; b.disabled = true;
+      try { await F.updateDoc(F.doc(db, 'bookings', b.dataset.id), { status: 'cancel_requested', cancelReason: r, cancelRequestedAt: Date.now() }); location.reload(); }
+      catch (e) { b.disabled = false; document.getElementById('mg').textContent = 'تعذر إرسال الطلب (قد تكون المهلة انتهت): ' + (e.code || ''); }
+    });
+  } else if (!slug) {
     const q = await F.getDocs(F.query(F.collection(db, 'salons'), F.where('status', '==', 'active')));
     app.innerHTML = q.empty ? '<div class="row">لا توجد صالونات متاحة بعد.</div>' : '<h2>الصالونات</h2>' + q.docs.map((d) => `<a class="row" href="?salon=${encodeURIComponent(d.id)}"><b>${esc(d.data().name)}</b></a>`).join('');
   } else {
