@@ -12,7 +12,7 @@ textarea{min-height:88px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px
 .chk{display:flex;gap:10px;align-items:flex-start;font-weight:400}.chk input{width:22px;min-height:22px;margin-top:2px;accent-color:var(--ac)}
 button{min-height:44px;width:100%;margin-top:16px;border:0;border-radius:12px;background:var(--ac);color:#fff;font:700 15px Cairo,Tahoma,sans-serif;cursor:pointer}button:disabled{opacity:.5}
 input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
-.bad{color:var(--bad)}.ok{color:var(--ok)}.d{display:grid;grid-template-columns:70px 1fr 1fr 64px;gap:6px;align-items:center;margin:6px 0}.d input[type=checkbox]{width:20px;min-height:20px}
+a{color:var(--ac);font-weight:600}.bad{color:var(--bad)}.ok{color:var(--ok)}.d{display:grid;grid-template-columns:70px 1fr 1fr 64px;gap:6px;align-items:center;margin:6px 0}.d input[type=checkbox]{width:20px;min-height:20px}
 </style></head><body><main id="app"><h1>انضمام صالون أو عيادة تجميل</h1><div class="m">املئي الطلب، وتتواصل معك الإدارة بمكالمة صوتية ثم مكالمة فيديو للتحقق قبل الموافقة.</div><div class="card">جارٍ التحميل...</div></main>
 <script type="module">
 import { configured, auth, db } from './js/fb.js';
@@ -44,7 +44,7 @@ app.innerHTML = `<h1>انضمام صالون أو عيادة تجميل</h1><div
 <h2>ساعات الدوام</h2>${DAYS.map(([k, n]) => `<div class="d"><span>${n}</span><input type="time" id="o${k}" value="10:00" aria-label="فتح ${n}"><input type="time" id="c${k}" value="20:00" aria-label="إغلاق ${n}"><label style="margin:0;font-weight:400"><input type="checkbox" id="x${k}" ${k === 5 ? 'checked' : ''}> عطلة</label></div>`).join('')}
 <h2>الخدمات الرئيسية</h2><label for="sv">اكتبي كل خدمة بسطر: الاسم، السعر التقريبي، المدة (مثال: قص شعر، 15000، 45 دقيقة). تعدّلينها لاحقًا.</label><textarea id="sv" required></textarea>
 <h2>التواصل الاجتماعي (اختياري)</h2><div class="g2"><div><label for="ig">إنستغرام</label><input id="ig" dir="ltr"></div><div><label for="fb">فيسبوك</label><input id="fb" dir="ltr"></div></div><label for="tk">تيك توك</label><input id="tk" dir="ltr">
-<label class="chk" style="margin-top:18px"><input type="checkbox" id="tm" required><span>أوافق على شروط الاستخدام وعقد المنصة (الاستقطاع والرسوم ومسؤولية كل طرف).</span></label>
+<label class="chk" style="margin-top:18px"><input type="checkbox" id="tm" required><span>أوافق على <a href="terms.html" target="_blank" rel="noopener">شروط الاستخدام وعقد المنصة</a> (الاستقطاع والرسوم ومسؤولية كل طرف) و<a href="privacy.html" target="_blank" rel="noopener">سياسة الخصوصية</a>.</span></label>
 <div id="er" class="m" role="status" aria-live="polite"></div><button id="go">إرسال الطلب</button>
 <div class="m" style="margin-top:12px">صور الصالون ووثيقة التحقق تُطلب منك أثناء مكالمة الفيديو، ولا ترفعينها هنا.</div></form>`;
 $('gv').onchange = (e) => { $('ar').innerHTML = '<option value="">اختاري</option>' + areas.filter((x) => x.governorateId === e.target.value).map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join(''); };
