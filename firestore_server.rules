@@ -13,6 +13,11 @@ service cloud.firestore {
     function isOwner(id) { return role() == 'owner' && active() && get(userDoc()).data.salonId == id; }
     function cfg() { return get(/databases/$(database)/documents/platform/settings).data; }
     function nowMs() { return request.time.toMillis(); }
+    // [جديد] تفويض: صاحبة الصالون تمنح الموظفة صلاحية الحسابات بحقل perms.accounts بوثيقة الموظفة (الإعطاء من الصالون فقط)
+    function staffCan(sid, p) {
+      return role() == 'staff' && active() && get(userDoc()).data.salonId == sid && get(userDoc()).data.staffId is string
+        && get(/databases/$(database)/documents/salons/$(sid)/staff/$(get(userDoc()).data.staffId)).data.get('perms', {}).get(p, false) == true;
+    }
 
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
@@ -58,14 +63,14 @@ service cloud.firestore {
       allow update: if isAdmin() || (isOwner(sid) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'ownerUid', 'slug', 'ownerPhone', 'customerFee', 'salonCut']));   // [جديد] الرسم والاستقطاع للأدمن فقط
       // [جديد] التسديدات: يقرؤها الأدمن وصاحبة الصالون فقط (الموظفة لا ترى الحسابات)، ويسجلها الأدمن، ولا تُعدَّل ولا تُحذف
       match /payments/{pid} {
-        allow read: if isAdmin() || isOwner(sid);
+        allow read: if isAdmin() || isOwner(sid) || staffCan(sid, 'accounts');
         allow create: if isAdmin() && request.resource.data.keys().hasOnly(['amount', 'by', 'at'])
                       && request.resource.data.amount is int && request.resource.data.amount > 0 && request.resource.data.by == request.auth.uid;
         allow update, delete: if false;
       }
       // [جديد] الفترات المؤرشفة (تصفير الحساب): الأدمن فقط ينشئ، والمتبقي صفر، والمستحق = المسدد، ولا تُعدَّل ولا تُحذف
       match /periods/{pid} {
-        allow read: if isAdmin() || isOwner(sid);
+        allow read: if isAdmin() || isOwner(sid) || staffCan(sid, 'accounts');
         allow create: if false;   // [مشدّد] التصفير بدالة closePeriod فقط
         allow update, delete: if false;
         // [جديد] اعتراض الصالون على الكشف: اعتراض واحد لكل فترة (المعرّف main) خلال ٣ أيام من التصفير. القرار للأدمن فقط.
