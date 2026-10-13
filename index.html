@@ -20,6 +20,7 @@ select,input[type=text],input[type=tel]{font:inherit;width:100%;padding:12px;bor
 import { configured, auth, db } from './js/fb.js';
 import { bookSlot, rescheduleBooking, acceptMove } from './js/booking.js';
 import { slotsFor, fmt } from './js/avail.js';
+import { effectiveFees } from './js/finance.js';
 const app = document.getElementById('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n) => Number(n).toLocaleString('en') + ' د.ع';
@@ -88,7 +89,7 @@ try {
     const nm = async (c, id) => { try { return (await F.getDoc(F.doc(db, c, id))).data()?.name || ''; } catch (e) { return ''; } };
     const [gv, ar, cfg, sv, st] = await Promise.all([nm('governorates', S.governorateId), nm('areas', S.areaId), F.getDoc(F.doc(db, 'platform', 'settings')),
       F.getDocs(F.collection(db, 'salons', slug, 'services')), F.getDocs(F.collection(db, 'salons', slug, 'staff'))]);
-    const fee = Number(cfg.data()?.customerFee) || 0, svc = sv.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.active), staff = st.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.status === 'active');
+    const eff = effectiveFees(S, cfg.data() || {}), fee = Number(eff.customerFee) || 0, svc = sv.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.active), staff = st.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.status === 'active');
     const DAYS = [[6, 'السبت'], [0, 'الأحد'], [1, 'الاثنين'], [2, 'الثلاثاء'], [3, 'الأربعاء'], [4, 'الخميس'], [5, 'الجمعة']], H = S.hours;
     document.title = S.name + ' — موعد أنوثة';
     app.innerHTML = `<h2 style="font-size:22px;margin-top:8px">${esc(S.name)}</h2><div class="m">${esc([gv, ar].filter(Boolean).join(' — '))}</div>
@@ -102,7 +103,7 @@ try {
       document.getElementById('a').textContent = money(sum); document.getElementById('z').textContent = money(sum ? sum + fee : 0); bk();
     });
     const $ = (i) => document.getElementById(i), SRC = ['qr', 'tiktok', 'whatsapp', 'facebook', 'instagram'], p = new URLSearchParams(location.search).get('src');
-    const sets = cfg.data(), now3 = () => new Date(Date.now() + 3 * 36e5), ds = (d) => d.toISOString().slice(0, 10);
+    const sets = eff, now3 = () => new Date(Date.now() + 3 * 36e5), ds = (d) => d.toISOString().slice(0, 10);
     const chosen = () => [...app.querySelectorAll('input:checked')].map((e) => svc[e.dataset.i]);
     let day = null, pick = null, slots = [];
     function bk() {
@@ -143,7 +144,7 @@ try {
           const r = await bookSlot({ db, fs: { doc: F.doc, runTransaction: F.runTransaction }, user: auth.currentUser, salon: { id: slug }, staffId: sf, date: day, startMin: pick.m,
             services: L.map((x) => ({ id: x.id, name: x.name, price: x.price, durationMin: x.durationMin })), settings: sets, idempotencyKey: key, source: 'online', src: SRC.includes(p) ? p : null, customerName: name, customerPhone: ph });
           app.innerHTML = `<div class="row"><h2 class="ok">تم الحجز ✓</h2><div>${esc(S.name)}</div><div class="m">${day} · ${fmt(pick.m)}</div><div class="m">رمز الإكمال، قوليه للموظفة بعد انتهاء الخدمة:</div><div class="code" dir="ltr">${esc(r.code || '----')}</div><div class="m">احتفظي بالرمز، فلا تقدرين تشوفينه هنا بعد مغادرة الصفحة.</div></div>`;
-        } catch (e) { $('go').disabled = false; er(e.message === 'SLOT_TAKEN' ? 'هذا الوقت انحجز قبل لحظات. اختاري وقتًا آخر.' : e.message === 'NOT_CONFIGURED' ? 'إعدادات المنصة غير مكتملة.' : e.code === 'permission-denied' ? 'تعذر الحجز، تواصلي مع الصالون.' : 'تعذر الحجز. أعيدي المحاولة.'); if (e.message === 'SLOT_TAKEN') load(); }
+        } catch (e) { $('go').disabled = false; er(e.message === 'SLOT_TAKEN' ? 'هذا الوقت انحجز قبل لحظات. اختاري وقتًا آخر.' : e.message === 'NOT_CONFIGURED' ? 'إعدادات المنصة غير مكتملة.' : e.code === 'permission-denied' ? 'تعذر الحجز. حدّثي الصفحة وأعيدي المحاولة، وإن تكرر تواصلي مع الصالون.' : 'تعذر الحجز. أعيدي المحاولة.'); if (e.message === 'SLOT_TAKEN') load(); }
       };
     }
   }
