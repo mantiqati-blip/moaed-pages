@@ -86,8 +86,15 @@ try {
       catch (e) { btn.disabled = false; say({ SLOT_TAKEN: 'الوقت المقترح لم يعد متاحًا. تواصلي مع الصالون أو اطلبي الإلغاء.', PAST: 'انتهى الوقت المقترح.' }[e.message] || ('تعذر النقل: ' + (e.code || e.message))); }
     });
   } else if (!slug) {
-    const q = await F.getDocs(F.query(F.collection(db, 'salons'), F.where('status', '==', 'active')));
-    app.innerHTML = q.empty ? '<div class="row">لا توجد صالونات متاحة بعد.</div>' : '<h2>الصالونات</h2>' + q.docs.map((d) => `<a class="row" href="?salon=${encodeURIComponent(d.id)}"><b>${esc(d.data().name)}</b></a>`).join('');
+    // الرابط الموحد: الصالونات + انضمام صالون + دخول الصالون/الموظفة/الإدارة
+    const safe = (p) => p.catch(() => null);
+    let [ps, gv, ar] = await Promise.all([safe(F.getDocs(F.query(F.collection(db, 'publicSalons'), F.where('status', '==', 'active')))), safe(F.getDocs(F.collection(db, 'governorates'))), safe(F.getDocs(F.collection(db, 'areas')))]);
+    if (!ps || ps.empty) ps = await safe(F.getDocs(F.query(F.collection(db, 'salons'), F.where('status', '==', 'active'))));   // قبل مزامنة القائمة العامة
+    const nameOf = (r) => Object.fromEntries((r?.docs || []).map((d) => [d.id, d.data().name]));
+    const G = nameOf(gv), R = nameOf(ar), L = (ps?.docs || []).map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.name).sort((x, y) => x.name.localeCompare(y.name, 'ar'));
+    const where = (x) => [R[x.areaId], G[x.governorateId]].filter(Boolean).join('، ');
+    app.innerHTML = '<h2>احجزي موعدك</h2>' + (L.length ? L.map((x) => `<a class="row" href="?salon=${encodeURIComponent(x.id)}"><b>${esc(x.name)}</b>${where(x) ? `<div class="m">${esc(where(x))}</div>` : ''}</a>`).join('') : '<div class="row">لا توجد صالونات متاحة بعد.</div>')
+      + '<h2>لصاحبات الصالونات والعيادات</h2><a class="row" href="join.html"><b>قدّمي طلب انضمام</b><div class="m">سجّلي صالونك أو عيادتك، وتتواصل معك الإدارة للتحقق.</div></a><a class="row" href="login.html"><b>تسجيل الدخول</b><div class="m">صاحبة الصالون، الموظفة، أو الإدارة.</div></a>';
   } else {
     const sd = await F.getDoc(F.doc(db, 'salons', slug)), S = sd.exists() ? sd.data() : null;
     if (!S || S.status !== 'active') { unavailable(); throw 0; }
