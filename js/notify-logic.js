@@ -1,5 +1,5 @@
 // منطق التنبيهات (بدون Firebase) حتى يمكن اختباره. الواجهة بـ js/notify.js.
-// role: admin | owner | staff. kind: booking | application | payreq.
+// role: admin | owner | staff. kind: booking | application | payreq | support | announce.
 // change: { type: 'added' | 'modified' | 'removed', data, prev }  (prev = بيانات الوثيقة قبل التغيير إن وُجدت)
 // ctx: { staffId } للموظفة. تُرجع { text, tab } أو null إذا ما يستحق تنبيهًا.
 const who = (d) => (d && d.customerName ? ' من ' + d.customerName : '');
@@ -7,6 +7,15 @@ const who = (d) => (d && d.customerName ? ' من ' + d.customerName : '');
 export function classify(role, kind, change, ctx = {}) {
   const { type, data, prev } = change;
   if (type === 'removed' || !data) return null;
+  if (kind === 'support') {                                  // الأدمن: محادثة دعم صارت بانتظار ردّه. الصالون: رد جديد من الإدارة
+    if (role === 'admin' && data.awaitingAdmin && (type === 'added' || !prev?.awaitingAdmin || prev.lastAt !== data.lastAt)) return { text: 'رسالة دعم' + (data.salonName ? ' من ' + data.salonName : ''), tab: 9 };
+    if (role === 'owner' && type === 'added' && data.from === 'admin') return { text: 'رد جديد من الإدارة', tab: 8 };
+    return null;
+  }
+  if (kind === 'announce') {
+    if (role !== 'admin' && type === 'added' && data.active) return { text: 'إعلان من الإدارة: ' + (data.title || ''), tab: 8 };
+    return null;
+  }
   if (role === 'admin') {
     if (kind === 'application' && type === 'added') return { text: 'طلب انضمام جديد' + (data.salonName ? ': ' + data.salonName : ''), tab: 7 };
     if (kind === 'booking' && data.status === 'pending_admin' && (type === 'added' || prev?.status !== 'pending_admin')) return { text: 'حجز بانتظار قرارك' + who(data), tab: 4 };
