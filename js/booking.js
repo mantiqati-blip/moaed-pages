@@ -21,8 +21,24 @@ export async function bookSlot({ db, fs, user, salon, staffId, date, startMin, s
   });
 }
 
+// نقل خلايا حجز داخل Transaction قائم: يحرّر القديمة ويثبّت الجديدة (نفس الموظفة أو غيرها). يرمي SLOT_TAKEN عند التعارض.
+async function moveCells(tx, fs, db, b, bookingId, staffId, date, startMin) {
+  const od = new Date(b.start + TZ_MS), oldDate = od.toISOString().slice(0, 10), oldMin = od.getUTCHours() * 60 + od.getUTCMinutes();
+  const oldKeys = cellKeys(oldMin, b.durationMin), newKeys = cellKeys(startMin, b.durationMin);
+  const oid = scheduleId(b.staffId, oldDate), nid = scheduleId(staffId, date);
+  const osnap = await tx.get(fs.doc(db, 'schedules', oid)), nsnap = oid === nid ? osnap : await tx.get(fs.doc(db, 'schedules', nid));
+  const ncells = nsnap.exists() ? nsnap.data().cells || {} : {};
+  if (newKeys.some((k) => ncells[k] !== undefined && ncells[k] !== bookingId)) throw new Error('SLOT_TAKEN');   // خلايا حجزها نفسه ليست تعارضًا
+  if (oid === nid) {
+    const upd = {}; oldKeys.filter((k) => !newKeys.includes(k)).forEach((k) => { upd['cells.' + k] = fs.deleteField(); }); newKeys.forEach((k) => { upd['cells.' + k] = bookingId; }); upd.moving = bookingId;
+    tx.update(fs.doc(db, 'schedules', nid), upd);
+  } else {
+    const del = {}; oldKeys.forEach((k) => { del['cells.' + k] = fs.deleteField(); }); del.moving = bookingId; tx.update(fs.doc(db, 'schedules', oid), del);
+    tx.set(fs.doc(db, 'schedules', nid), { cells: Object.fromEntries(newKeys.map((k) => [k, bookingId])) }, { merge: true });
+  }
+}
 // تعديل موعد من الزبونة: نفس الموظفة ونفس الخدمات، يوم ووقت متاحان فقط. مرة واحدة لكل حجز، وقبل مهلة الإلغاء.
-// الوقت الجديد يُثبَّت والقديم يُحرَّر داخل Transaction واحد، فلا يضيع الوقتان. fs = { doc, runTransaction, deleteField }
+// fs = { doc, runTransaction, deleteField }
 export async function rescheduleBooking({ db, fs, user, bookingId, date, startMin, cutoffHours = 2, now = Date.now() }) {
   const bref = fs.doc(db, 'bookings', bookingId);
   return fs.runTransaction(db, async (tx) => {
@@ -34,22 +50,25 @@ export async function rescheduleBooking({ db, fs, user, bookingId, date, startMi
     if (b.start - now < cutoffHours * 36e5) throw new Error('TOO_LATE');
     const start = toEpoch(date, startMin), end = start + b.durationMin * 60000;
     if (start <= now) throw new Error('PAST');
-    const od = new Date(b.start + TZ_MS), oldDate = od.toISOString().slice(0, 10), oldMin = od.getUTCHours() * 60 + od.getUTCMinutes();
-    const oldKeys = cellKeys(oldMin, b.durationMin), newKeys = cellKeys(startMin, b.durationMin);
-    const oid = scheduleId(b.staffId, oldDate), nid = scheduleId(b.staffId, date);
-    const osnap = await tx.get(fs.doc(db, 'schedules', oid)), nsnap = oid === nid ? osnap : await tx.get(fs.doc(db, 'schedules', nid));
-    const ncells = nsnap.exists() ? nsnap.data().cells || {} : {};
-    const clash = newKeys.filter((k) => ncells[k] !== undefined && ncells[k] !== bookingId);   // خلايا حجزها نفسه ليست تعارضًا
-    if (clash.length) throw new Error('SLOT_TAKEN');
-    if (oid === nid) {
-      const upd = {}; oldKeys.filter((k) => !newKeys.includes(k)).forEach((k) => { upd['cells.' + k] = fs.deleteField(); }); newKeys.forEach((k) => { upd['cells.' + k] = bookingId; }); upd.moving = bookingId;
-      tx.update(fs.doc(db, 'schedules', nid), upd);
-    } else {
-      const del = {}; oldKeys.forEach((k) => { del['cells.' + k] = fs.deleteField(); }); del.moving = bookingId; tx.update(fs.doc(db, 'schedules', oid), del);
-      tx.set(fs.doc(db, 'schedules', nid), { cells: Object.fromEntries(newKeys.map((k) => [k, bookingId])) }, { merge: true });
-    }
+    await moveCells(tx, fs, db, b, bookingId, b.staffId, date, startMin);
     tx.update(bref, { start, end, rescheduleCount: 1, rescheduledAt: now, prevStart: b.start });
     tx.set(fs.doc(db, 'bookings', bookingId, 'events', 'rs-' + now), { by: user.uid, action: 'reschedule', from: b.start, to: start, at: now });
     return { start, end };
+  });
+}
+// الزبونة توافق على نقل اقترحه الصالون (moveProposal): نفس منطق النقل لكن بالموظفة المقترحة، وبدون استهلاك تعديلها الوحيد.
+export async function acceptMove({ db, fs, user, bookingId, now = Date.now() }) {
+  const bref = fs.doc(db, 'bookings', bookingId);
+  return fs.runTransaction(db, async (tx) => {
+    const bs = await tx.get(bref); if (!bs.exists()) throw new Error('NOT_FOUND');
+    const b = bs.data(), p = b.moveProposal;
+    if (b.customerUid !== user.uid) throw new Error('NOT_YOURS');
+    if (b.status !== 'confirmed' || !p) throw new Error('NOT_ALLOWED');
+    if (p.start <= now) throw new Error('PAST');
+    const d = new Date(p.start + TZ_MS), date = d.toISOString().slice(0, 10), startMin = d.getUTCHours() * 60 + d.getUTCMinutes();
+    await moveCells(tx, fs, db, b, bookingId, p.staffId, date, startMin);
+    tx.update(bref, { start: p.start, end: p.end, staffId: p.staffId, moveProposal: fs.deleteField(), movedAt: now, prevStart: b.start });
+    tx.set(fs.doc(db, 'bookings', bookingId, 'events', 'mv-' + now), { by: user.uid, action: 'accept_move', from: b.start, to: p.start, reason: p.reason, at: now });
+    return { start: p.start, end: p.end };
   });
 }
