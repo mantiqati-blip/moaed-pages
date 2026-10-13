@@ -17,6 +17,7 @@ label{display:block;font-weight:600;margin:12px 0 4px}input,select{font:inherit;
 .g3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px}@media(max-width:520px){.g3{grid-template-columns:1fr}}
 .d{display:grid;grid-template-columns:80px 1fr 1fr 70px;gap:8px;align-items:center;margin:8px 0}.d input{padding:8px}.d input[type=checkbox]{width:20px;height:20px}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.tag{background:var(--soft);border-radius:8px;padding:2px 10px;font-size:13px}.tag.off{background:#eee;color:var(--mute)}
+@media print{body>*:not(main),header,nav,.noprint,#cp,#dl,#pr,#msg{display:none!important}body{background:#fff}.row{border:0!important}}
 </style></head><body>
 <header><b id="sn">لوحة الصالون</b><span><span class="m" id="me"></span> <button id="out" hidden>خروج</button></span></header>
 <main id="app"><div class="row">جارٍ التحقق من الدخول...</div></main>
@@ -27,6 +28,7 @@ import { bookSlot } from './js/booking.js';
 import { cellKeys, toEpoch } from './js/cells.js';
 import { slotsFor, fmt } from './js/avail.js';
 import { toCSV, bookingColumns, download, dateOf } from './js/export.js';
+import qrcode from './js/qr.js';
 const $ = (i) => document.getElementById(i), app = $('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const latin = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
@@ -42,10 +44,21 @@ $('me').textContent = me.name || ''; $('out').hidden = false; $('out').onclick =
 const sid = me.salonId, sref = F.doc(db, 'salons', sid);
 const salon = (await F.getDoc(sref)).data() || {}; $('sn').textContent = salon.name || 'لوحة الصالون';
 const note = salon.status === 'active' ? '' : '<div class="row bad">صالونك موقوف حاليًا ولا يظهر للزبونات. تواصلي مع الإدارة.</div>';
-app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button><button id="t5">الحسابات</button><button id="t6">حجز يدوي</button></nav><div id="v"></div>';
-const tab = (n) => { [1, 2, 3, 4, 5, 6].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings, accounts, manual][n - 1](); };
-[1, 2, 3, 4, 5, 6].forEach((i) => $('t' + i).onclick = () => tab(i));
+app.innerHTML = note + '<nav><button id="t4" class="on">الحجوزات</button><button id="t1">الخدمات</button><button id="t2">الدوام</button><button id="t3">الموظفات</button><button id="t5">الحسابات</button><button id="t6">حجز يدوي</button><button id="t7">رابط وQR</button></nav><div id="v"></div>';
+const tab = (n) => { [1, 2, 3, 4, 5, 6, 7].forEach((i) => $('t' + i).className = i === n ? 'on' : ''); [services, hours, staff, bookings, accounts, manual, linkQr][n - 1](); };
+[1, 2, 3, 4, 5, 6, 7].forEach((i) => $('t' + i).onclick = () => tab(i));
 const msgEl = () => $('msg'), say = (t, c = '') => { msgEl().className = 'm ' + c; msgEl().textContent = t; };
+function linkQr() {
+  const url = new URL('./?salon=' + encodeURIComponent(sid), location.href).href, q = qrcode(0, 'M'); q.addData(url); q.make();
+  const svg = q.createSvgTag({ cellSize: 8, margin: 4, scalable: true });
+  $('v').innerHTML = `<div class="row" style="text-align:center"><b>رابط الحجز لصالونك</b><div class="m" dir="ltr" style="word-break:break-all;margin:6px 0">${esc(url)}</div>
+    <div id="qrb" style="max-width:260px;margin:10px auto;background:#fff;padding:6px;border-radius:12px" role="img" aria-label="رمز QR لرابط حجز الصالون">${svg}</div>
+    <div class="m">اطبعيه وضعيه بالصالون ليحجز منه الزبائن مباشرة.</div>
+    <button id="cp" class="p">نسخ الرابط</button> <button id="dl">تنزيل QR</button> <button id="pr">طباعة</button><div id="msg" class="m" role="status"></div></div>`;
+  $('cp').onclick = async () => { try { await navigator.clipboard.writeText(url); say('تم نسخ الرابط.', 'ok'); } catch (e) { say('انسخيه يدويًا من النص أعلاه.', 'bad'); } };
+  $('dl').onclick = () => { const s = $('qrb').innerHTML.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"'), a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([s], { type: 'image/svg+xml' })); a.download = 'qr-' + sid + '.svg'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+  $('pr').onclick = () => print();
+}
 async function services() {
   const v = $('v'), col = F.collection(db, 'salons', sid, 'services');
   const L = (await F.getDocs(col)).docs.map((d) => ({ id: d.id, ...d.data() }));
