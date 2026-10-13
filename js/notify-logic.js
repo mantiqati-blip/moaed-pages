@@ -1,5 +1,5 @@
 // منطق التنبيهات (بدون Firebase) حتى يمكن اختباره. الواجهة بـ js/notify.js.
-// role: admin | owner | staff. kind: booking | application.
+// role: admin | owner | staff. kind: booking | application | payreq.
 // change: { type: 'added' | 'modified' | 'removed', data, prev }  (prev = بيانات الوثيقة قبل التغيير إن وُجدت)
 // ctx: { staffId } للموظفة. تُرجع { text, tab } أو null إذا ما يستحق تنبيهًا.
 const who = (d) => (d && d.customerName ? ' من ' + d.customerName : '');
@@ -10,6 +10,13 @@ export function classify(role, kind, change, ctx = {}) {
   if (role === 'admin') {
     if (kind === 'application' && type === 'added') return { text: 'طلب انضمام جديد' + (data.salonName ? ': ' + data.salonName : ''), tab: 7 };
     if (kind === 'booking' && data.status === 'pending_admin' && (type === 'added' || prev?.status !== 'pending_admin')) return { text: 'حجز بانتظار قرارك' + who(data), tab: 4 };
+    return null;
+  }
+  if (kind === 'payreq') {                                   // رد الإدارة على طلب تسديد الصالون
+    if (role === 'owner' && type === 'modified' && prev?.status === 'pending') {
+      if (data.status === 'approved') return { text: 'تم تأكيد استلام تسديدك', tab: 5 };
+      if (data.status === 'rejected') return { text: 'رُفض طلب تسديدك' + (data.decision ? ': ' + data.decision : ''), tab: 5 };
+    }
     return null;
   }
   if (kind !== 'booking') return null;
