@@ -1,0 +1,123 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>حسابي — موعد أنوثة</title>
+<meta name="description" content="سجّلي دخولك في موعد أنوثة لمتابعة حجوزاتك في صالونات وعيادات التجميل من أي جهاز.">
+<meta name="theme-color" content="#B83A6B">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23B83A6B'/%3E%3Ctext x='32' y='46' font-size='40' text-anchor='middle' fill='white' font-family='sans-serif'%3E%D9%85%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBF5F7;--card:#fff;--ink:#2A1722;--mute:#7A6571;--line:#EBDCE3;--ac:#B83A6B;--ac2:#8E2A52;--soft:#F8E3EC;--bad:#C0392B;--ok:#1A7F4B;--sh:0 8px 28px rgba(122,40,76,.10)}
+@media(prefers-color-scheme:dark){:root{--bg:#1A1017;--card:#26171F;--ink:#F6E9EF;--mute:#B79DAA;--line:#3A2630;--ac:#E26C9A;--ac2:#C94F80;--soft:#3A2230;--bad:#F0776A;--ok:#5CC48B;--sh:0 8px 28px rgba(0,0,0,.35)}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.6 Cairo,Tahoma,Arial,sans-serif;min-height:100vh;display:flex;flex-direction:column;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0)}
+.band{background:linear-gradient(135deg,var(--ac2),var(--ac));color:#fff;padding:22px 16px 64px}
+.band .in{max-width:460px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:800;font-size:20px}
+.mark{width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,.2);display:grid;place-items:center;font-weight:800;font-size:20px}
+.wrap{width:100%;max-width:460px;margin:-44px auto 0;padding:0 16px 24px;flex:1}
+h1{font-size:22px;font-weight:800;margin:0 0 2px}
+.sub{color:var(--mute);margin:0 0 14px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:20px;box-shadow:var(--sh);margin-bottom:14px}
+label{display:block;margin:14px 0 6px;font-weight:600;font-size:14px}
+input{width:100%;min-height:48px;border:1px solid var(--line);border-radius:14px;padding:8px 14px;background:var(--bg);color:var(--ink);font:400 16px Cairo,Tahoma,sans-serif}
+input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+.pw{position:relative}.pw input{padding-inline-end:76px}
+.eye{position:absolute;inset-inline-end:6px;top:6px;min-height:36px;width:auto;margin:0;padding:0 12px;background:transparent;color:var(--ac);border:0;border-radius:10px;font:600 13px Cairo,Tahoma,sans-serif;cursor:pointer}
+button.go,a.go{display:flex;align-items:center;justify-content:center;gap:8px;min-height:50px;width:100%;margin-top:18px;border:0;border-radius:14px;background:var(--ac);color:#fff;font:700 16px Cairo,Tahoma,sans-serif;cursor:pointer;text-decoration:none;transition:filter .15s}
+button.go:hover,a.go:hover{filter:brightness(.94)}button.go:disabled{opacity:.55;cursor:default}
+.spin{width:18px;height:18px;border:3px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.spin{animation-duration:2s}}
+.err{background:var(--soft);color:var(--bad);padding:12px 14px;border-radius:12px;margin-top:14px;font-size:14px}
+.m{color:var(--mute);font-size:13px}
+.ghost{display:block;text-align:center;color:var(--ac);font-weight:700;text-decoration:none;padding:12px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:4px;margin-bottom:6px}
+.tabs button{min-height:42px;border:0;border-radius:11px;background:transparent;color:var(--mute);font:600 15px Cairo,Tahoma,sans-serif;cursor:pointer}
+.tabs button[aria-selected=true]{background:var(--card);color:var(--ac);box-shadow:0 1px 6px rgba(0,0,0,.12)}
+footer{display:flex;gap:18px;justify-content:center;padding:6px 16px 22px;font-size:13px}footer a{color:var(--mute)}
+[hidden]{display:none!important}
+
+</style></head><body>
+<div class="band"><div class="in"><a class="brand" href="index.html"><span class="mark" aria-hidden="true">م</span>موعد أنوثة</a></div></div>
+<main class="wrap">
+  <section class="card">
+    <h1>أهلًا بكِ</h1>
+    <p class="sub">سجّلي دخولك لتتابعي حجوزاتك وتغيّري مواعيدك من أي جهاز.</p>
+    <div class="tabs" role="tablist" aria-label="نوع العملية">
+      <button type="button" id="tIn" role="tab" aria-selected="true" aria-controls="f">دخول</button>
+      <button type="button" id="tUp" role="tab" aria-selected="false" aria-controls="f">حساب جديد</button>
+    </div>
+    <form id="f" novalidate>
+      <div id="nameRow" hidden><label for="name">الاسم</label><input id="name" autocomplete="name" maxlength="40"></div>
+      <label for="phone">رقم الهاتف</label>
+      <input id="phone" type="tel" inputmode="numeric" placeholder="07XXXXXXXXX" autocomplete="username" dir="ltr">
+      <label for="pass">كلمة السر</label>
+      <div class="pw"><input id="pass" type="password" autocomplete="current-password" dir="ltr" minlength="6"><button type="button" class="eye" id="eye" aria-pressed="false">إظهار</button></div>
+      <div class="err" id="e" role="alert" hidden></div>
+      <button class="go" id="go" type="submit">دخول</button>
+    </form>
+  </section>
+  <a class="ghost" href="index.html">المتابعة بدون حساب</a>
+  <p class="m" style="text-align:center">صاحبة صالون أو موظفة؟ <a href="login.html" style="color:var(--ac);font-weight:700">دخول الصالونات</a></p>
+</main>
+<footer><a href="terms.html">الشروط</a><a href="privacy.html">الخصوصية</a></footer>
+<script type="module">
+import { configured, auth } from './js/fb.js';
+import { lockState, afterFailure } from './js/login-logic.js';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, EmailAuthProvider, linkWithCredential, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+const $ = (i) => document.getElementById(i);
+const DOMAIN = '@phone.moaed.app';                                   // الدخول بالرقم: بريد داخلي ثابت لا تراه الزبونة
+const NEXT = { my: 'index.html?my=1' }[new URLSearchParams(location.search).get('next')] || 'customer.html';
+let mode = 'in', busy = false;
+const show = (m) => { $('e').hidden = !m; $('e').textContent = m || ''; };
+function setMode(m) {
+  mode = m; show('');
+  $('tIn').setAttribute('aria-selected', String(m === 'in')); $('tUp').setAttribute('aria-selected', String(m === 'up'));
+  $('nameRow').hidden = m === 'in'; $('go').textContent = m === 'in' ? 'دخول' : 'إنشاء الحساب';
+  $('pass').autocomplete = m === 'in' ? 'current-password' : 'new-password';
+}
+$('tIn').onclick = () => setMode('in'); $('tUp').onclick = () => setMode('up');
+$('eye').onclick = () => { const on = $('pass').type === 'password'; $('pass').type = on ? 'text' : 'password'; $('eye').textContent = on ? 'إخفاء' : 'إظهار'; $('eye').setAttribute('aria-pressed', String(on)); };
+function normPhone(v) {
+  let d = String(v).replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/\D/g, '');
+  if (d.startsWith('964')) d = '0' + d.slice(3); else if (/^7\d{9}$/.test(d)) d = '0' + d;
+  return /^07[3-9]\d{8}$/.test(d) ? d : null;
+}
+const ERR = {
+  'auth/invalid-credential': 'رقم الهاتف أو كلمة السر غير صحيحة.', 'auth/wrong-password': 'رقم الهاتف أو كلمة السر غير صحيحة.', 'auth/user-not-found': 'رقم الهاتف أو كلمة السر غير صحيحة.',
+  'auth/email-already-in-use': 'هذا الرقم مسجّل من قبل، جرّبي الدخول.', 'auth/credential-already-in-use': 'هذا الرقم مسجّل من قبل، جرّبي الدخول.',
+  'auth/weak-password': 'كلمة السر قصيرة، استعملي 6 أحرف أو أكثر.', 'auth/too-many-requests': 'محاولات كثيرة، حاولي بعد قليل.',
+  'auth/network-request-failed': 'تأكدي من اتصال الإنترنت وأعيدي المحاولة.', 'auth/user-disabled': 'الحساب موقوف، تواصلي مع الإدارة.',
+  'auth/operation-not-allowed': 'إنشاء الحسابات غير مفعّل حاليًا، تواصلي مع الإدارة.'
+};
+if (!configured) show('الموقع قيد الإعداد، حاولي لاحقًا.');
+$('f').addEventListener('submit', async (ev) => {
+  ev.preventDefault(); show(''); if (!configured || busy) return;
+  const phone = normPhone($('phone').value), pass = $('pass').value, name = $('name').value.trim();
+  if (!phone) return show('اكتبي رقم هاتف عراقي صحيح، مثل 07701234567.');
+  if (mode === 'up' && name.length < 3) return show('اكتبي اسمك (3 أحرف على الأقل).');
+  if (pass.length < 6) return show('كلمة السر 6 أحرف أو أكثر.');
+  const key = 'lk_' + phone, now = Date.now(); let rec = null; try { rec = JSON.parse(localStorage.getItem(key)); } catch (e) {}
+  const st = lockState(rec, now); if (st.locked) return show(`تم إيقاف المحاولات مؤقتًا، حاولي بعد ${st.left} دقيقة.`);
+  busy = true; $('go').disabled = true; $('go').innerHTML = '<span class="spin" aria-hidden="true"></span> لحظة...';
+  try {
+    await auth.authStateReady?.();
+    const email = phone + DOMAIN;
+    if (mode === 'up') {
+      // إن كانت الزبونة تصفحت كضيفة نربط الحساب بنفس الجلسة فتبقى حجوزاتها السابقة بهذا المتصفح
+      const cu = auth.currentUser, c = cu?.isAnonymous ? await linkWithCredential(cu, EmailAuthProvider.credential(email, pass)) : await createUserWithEmailAndPassword(auth, email, pass);
+      await updateProfile(c.user, { displayName: name });
+    } else await signInWithEmailAndPassword(auth, email, pass);
+    try { localStorage.removeItem(key); } catch (e) {}
+    location.replace(NEXT);
+  } catch (e) {
+    if (mode === 'in') { try { localStorage.setItem(key, JSON.stringify(afterFailure(rec, now))); } catch (x) {} }
+    show(ERR[e.code] || 'تعذر إكمال الطلب، أعيدي المحاولة.');
+    busy = false; $('go').disabled = false; $('go').textContent = mode === 'in' ? 'دخول' : 'إنشاء الحساب';
+  }
+});
+// مسجلة دخولها من قبل: نكمل مباشرة (حسابات الزبونات فقط)
+if (configured) onAuthStateChanged(auth, (u) => { if (!busy && u && !u.isAnonymous && (u.email || '').endsWith(DOMAIN)) location.replace(NEXT); });
+</script></body></html>
