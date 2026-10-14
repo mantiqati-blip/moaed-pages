@@ -1,0 +1,9 @@
+{
+  "firestore": { "rules": "firestore_server.rules", "indexes": "firestore.indexes.json" },
+  "functions": [{ "source": "functions", "codebase": "default", "ignore": ["node_modules", "*.test.js", "README.md"] }],
+  "emulators": {
+    "firestore": { "port": 8080 },
+    "singleProjectMode": true,
+    "ui": { "enabled": false }
+  }
+}

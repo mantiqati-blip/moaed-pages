@@ -1,0 +1,8 @@
+node_modules/
+*.log
+firebase-debug.log
+.firebase/
+# النسخ الاحتياطية فيها أرقام هواتف الزبونات: لا تُرفع للمستودع أبدًا
+moaed-backup-*.json
+*service-account*.json
+.env*
