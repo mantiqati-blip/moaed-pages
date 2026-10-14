@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>حجوزاتي — الموعد</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef3f4;--ink:#10222b;--mut:#5b6f78;--line:#cfdadd;--acc:#0e7c86;--acc2:#e8a33d;--card:#fff;--err:#b3261e}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1a20;--ink:#e8f0f2;--mut:#8fa5ad;--line:#26404a;--card:#132830;--acc:#3fb6c1}}
+*{box-sizing:border-box}
+body{font-family:"IBM Plex Sans Arabic",Tahoma,sans-serif;background:var(--bg);color:var(--ink);margin:0}
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+header b{font-size:1.3rem}
+header span{color:var(--mut);font-size:.9rem;margin-inline-end:12px}
+button{font:inherit;cursor:pointer;color:inherit}
+.link{background:none;border:0;color:var(--acc);padding:6px}
+main{max-width:720px;margin:0 auto;padding:16px}
+h2{font-size:1.1rem;margin:24px 0 10px}
+.list{display:grid;gap:8px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:start;color:var(--ink)}
+button.item{width:100%}
+button.item[aria-pressed=true]{border-color:var(--acc);box-shadow:inset 4px 0 0 var(--acc2)}
+.mut{color:var(--mut);font-size:.88rem}
+.st{font-size:.8rem;padding:2px 10px;border-radius:99px;border:1px solid var(--line);white-space:nowrap}
+form,.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{font-size:.9rem;display:grid;gap:4px}
+input,textarea{padding:10px;font:inherit;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;width:100%}
+input:focus,textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.go{padding:12px;font-weight:600;background:var(--acc);color:#fff;border:0;border-radius:8px}
+.go:disabled{opacity:.6}
+.slots{display:flex;flex-wrap:wrap;gap:6px}
+.slot{padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:transparent}
+.slot[aria-pressed=true]{background:var(--acc);color:#fff;border-color:var(--acc)}
+.slot:disabled{opacity:.35;text-decoration:line-through;cursor:not-allowed}
+.sum{display:flex;justify-content:space-between;font-weight:600}
+.acts{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.acts .link{border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:.85rem}
+.acts .del{color:var(--err)}
+#msg{min-height:1.4em;margin:0;font-size:.9rem}
+.ok{color:var(--acc)} .bad{color:var(--err)}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);padding:18px;width:min(92vw,380px)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog form{border:0;padding:0;background:none}
+.stars{display:flex;gap:4px;direction:ltr;justify-content:center}
+.stars button{background:none;border:0;font-size:2rem;color:var(--line);padding:0 2px}
+.stars button.on{color:var(--acc2)}
+.dact{display:flex;gap:8px}.dact>*{flex:1}
+.cancel{padding:12px;background:transparent;border:1px solid var(--line);border-radius:8px}
+</style>
+</head>
+<body>
+<header><b>الموعد</b><div><span id="who"></span><button class="link" id="out">خروج</button></div></header>
+<main>
+  <h2>اختر الصالون</h2>
+  <div class="list" id="salons"><p class="mut">جاري التحميل...</p></div>
+
+  <div id="svcWrap" hidden>
+    <h2>الخدمة</h2>
+    <div class="list" id="svcs"></div>
+  </div>
+
+  <h2>موعد جديد</h2>
+  <form id="f">
+    <label>التاريخ<input id="date" type="date" required></label>
+    <div>
+      <div class="mut" style="margin-bottom:6px">الأوقات المتاحة</div>
+      <div class="slots" id="slots"><span class="mut">اختر صالون وتاريخ.</span></div>
+    </div>
+    <label>كود الخصم (إذا عندك)<input id="coupon" dir="ltr" autocomplete="off"></label>
+    <div class="sum" id="sum" hidden><span>السعر</span><span id="price"></span></div>
+    <p class="mut" id="cpNote" hidden>الخصم يُحسب عند تأكيد الحجز.</p>
+    <button class="go" id="book" disabled>اختر صالون أولاً</button>
+    <p id="msg" role="alert"></p>
+  </form>
+
+  <h2>حجوزاتي</h2>
+  <div class="list" id="mine"><p class="mut">جاري التحميل...</p></div>
+</main>
+
+<dialog id="dMove">
+  <form method="dialog" id="fMove">
+    <b>تغيير الموعد</b>
+    <label>التاريخ الجديد<input id="mDate" type="date" required></label>
+    <label>الوقت الجديد<input id="mTime" type="time" step="1800" required></label>
+    <p id="mMsg" class="bad" role="alert"></p>
+    <div class="dact"><button class="go" id="mGo">تأكيد التغيير</button><button type="button" class="cancel" data-close>إغلاق</button></div>
+  </form>
+</dialog>
+
+<dialog id="dRate">
+  <form method="dialog" id="fRate">
+    <b id="rTitle">قيّم تجربتك</b>
+    <div class="stars" id="stars"></div>
+    <label>تعليقك (اختياري)<textarea id="rText" rows="3" maxlength="300"></textarea></label>
+    <p id="rMsg" class="bad" role="alert"></p>
+    <div class="dact"><button class="go" id="rGo" disabled>أرسل التقييم</button><button type="button" class="cancel" data-close>إغلاق</button></div>
+  </form>
+</dialog>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, query, where, getDocs, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js";
+
+// نفس الإعدادات اللي بصفحة الدخول
+const firebaseConfig = { apiKey:"", authDomain:"", projectId:"moaed-unotha-prod", appId:"" };
+
+const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app), fns = getFunctions(app);
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money = n => Number(n || 0).toLocaleString("en-US") + " د.ع";
+const STATUS = { pending:"قيد الانتظار", confirmed:"مؤكد", completed:"مكتمل", done:"مكتمل", cancelled:"ملغي", canceled:"ملغي" };
+const ACTIVE = ["pending","confirmed"], FINISHED = ["completed","done"];
+// ساعات العمل الافتراضية إذا الصالون ما حدد (salon.hours = {open:"10:00", close:"20:00"}) وطول الفترة بالدقائق
+const DEF_HOURS = { open:"10:00", close:"20:00" }, STEP = 30;
+
+let user, salon = null, service = null, time = "";
+const salonsById = {};
+
+async function call(name, data){
+  try{ return await httpsCallable(fns, name)(data); }
+  catch(e){ throw new Error(e.code === "functions/not-found" ? "هذي الخدمة غير منشورة بعد." : (e.message || "صار خطأ.")); }
+}
+const today = () => new Date().toLocaleDateString("sv");
+$("date").min = $("mDate").min = today();
+
+$("out").onclick = () => signOut(auth);
+document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => b.closest("dialog").close());
+
+onAuthStateChanged(auth, u => {
+  if(!u){ location.replace("login.html"); return; }
+  user = u; $("who").textContent = u.displayName || (u.email || "").split("@")[0];
+  loadSalons(); loadMine();
+});
+
+/* ---------- الصالونات والخدمات ---------- */
+async function loadSalons(){
+  try{
+    const s = await getDocs(collection(db, "salons"));
+    if(s.empty){ $("salons").innerHTML = '<p class="mut">ما في صالونات حالياً.</p>'; return; }
+    $("salons").innerHTML = "";
+    s.forEach(d => {
+      const x = { id:d.id, ...d.data() }; salonsById[d.id] = x;
+      const b = document.createElement("button");
+      b.className = "item"; b.setAttribute("aria-pressed","false");
+      b.innerHTML = `<span>${esc(x.name)}</span><span class="mut">${esc(x.city || x.address || "")}</span>`;
+      b.onclick = () => {
+        document.querySelectorAll("#salons .item").forEach(e => e.setAttribute("aria-pressed","false"));
+        b.setAttribute("aria-pressed","true");
+        salon = x; service = null; time = "";
+        renderServices(); loadSlots(); refresh();
+      };
+      $("salons").appendChild(b);
+    });
+  }catch(e){ $("salons").innerHTML = `<p class="bad">تعذّر تحميل الصالونات (${esc(e.code)}).</p>`; }
+}
+
+// الخدمات: مصفوفة salon.services = [{id,name,price,duration}]
+function renderServices(){
+  const list = Array.isArray(salon.services) ? salon.services : [];
+  $("svcWrap").hidden = !list.length;
+  $("svcs").innerHTML = "";
+  list.forEach((sv, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "item"; b.setAttribute("aria-pressed","false");
+    b.innerHTML = `<span>${esc(sv.name)}<br><span class="mut">${sv.duration ? esc(sv.duration) + " دقيقة" : ""}</span></span><b>${esc(money(sv.price))}</b>`;
+    b.onclick = () => {
+      document.querySelectorAll("#svcs .item").forEach(e => e.setAttribute("aria-pressed","false"));
+      b.setAttribute("aria-pressed","true");
+      service = { id: sv.id ?? String(i), ...sv }; refresh();
+    };
+    $("svcs").appendChild(b);
+  });
+}
+
+/* ---------- الأوقات المتاحة ---------- */
+function allSlots(){
+  const h = salon.hours || DEF_HOURS, toMin = t => +t.slice(0,2) * 60 + +t.slice(3,5);
+  const out = [];
+  for(let m = toMin(h.open); m + STEP <= toMin(h.close); m += STEP)
+    out.push(String(Math.floor(m/60)).padStart(2,"0") + ":" + String(m%60).padStart(2,"0"));
+  return out;
+}
+async function loadSlots(){
+  time = "";
+  const date = $("date").value, box = $("slots");
+  if(!salon || !date){ box.innerHTML = '<span class="mut">اختر صالون وتاريخ.</span>'; refresh(); return; }
+  let taken = new Set();
+  try{
+    // إذا القواعد تمنع قراءة حجوزات الغير، نعرض كل الأوقات والدالة ترفض المتعارض
+    const s = await getDocs(query(collection(db,"bookings"), where("salonId","==",salon.id), where("date","==",date)));
+    s.forEach(d => { const x = d.data(); if(ACTIVE.includes(x.status || "pending")) taken.add(x.time); });
+  }catch(e){}
+  const now = new Date().toTimeString().slice(0,5), isToday = date === today();
+  box.innerHTML = "";
+  allSlots().forEach(t => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "slot"; b.textContent = t; b.setAttribute("aria-pressed","false");
+    b.disabled = taken.has(t) || (isToday && t <= now);
+    b.onclick = () => {
+      box.querySelectorAll(".slot").forEach(e => e.setAttribute("aria-pressed","false"));
+      b.setAttribute("aria-pressed","true"); time = t; refresh();
+    };
+    box.appendChild(b);
+  });
+  if(!box.children.length) box.innerHTML = '<span class="mut">ما في أوقات بهذا اليوم.</span>';
+  refresh();
+}
+$("date").onchange = loadSlots;
+$("coupon").oninput = refresh;
+
+function refresh(){
+  const hasSvc = salon && Array.isArray(salon.services) && salon.services.length;
+  $("sum").hidden = !service; if(service) $("price").textContent = money(service.price);
+  $("cpNote").hidden = !$("coupon").value.trim();
+  const ready = salon && $("date").value && time && (!hasSvc || service);
+  $("book").disabled = !ready;
+  $("book").textContent = !salon ? "اختر صالون أولاً" : (hasSvc && !service) ? "اختر الخدمة" : !$("date").value ? "اختر التاريخ" : !time ? "اختر الوقت" : "احجز في " + salon.name;
+}
+
+$("f").onsubmit = async ev => {
+  ev.preventDefault();
+  $("msg").className = ""; $("msg").textContent = ""; $("book").disabled = true;
+  try{
+    await call("createBooking", { salonId:salon.id, serviceId:service?.id ?? null, date:$("date").value, time, couponCode:$("coupon").value.trim() || null });
+    $("msg").className = "ok"; $("msg").textContent = "تم الحجز.";
+    $("coupon").value = ""; loadMine(); loadSlots();
+  }catch(e){ $("msg").className = "bad"; $("msg").textContent = e.message; refresh(); }
+};
+
+/* ---------- حجوزاتي ---------- */
+async function loadMine(){
+  try{
+    const s = await getDocs(query(collection(db,"bookings"), where("customerId","==",user.uid)));
+    if(s.empty){ $("mine").innerHTML = '<p class="mut">ما عندك حجوزات. احجز أول موعد من فوق.</p>'; return; }
+    const rows = s.docs.map(d => ({ id:d.id, ...d.data() })).sort((a,b) => (b.date + b.time).localeCompare(a.date + a.time));
+    $("mine").innerHTML = "";
+    rows.forEach(x => {
+      const st = x.status || "pending", el = document.createElement("div");
+      el.className = "item"; el.style.alignItems = "flex-start";
+      el.innerHTML = `<div><div>${esc(x.salonName || salonsById[x.salonId]?.name || x.salonId)}${x.serviceName ? " — " + esc(x.serviceName) : ""}</div>
+        <div class="mut">${esc(x.date)} ${esc(x.time)}${x.price != null ? " · " + esc(money(x.total ?? x.price)) : ""}</div><div class="acts"></div></div>
+        <span class="st">${esc(STATUS[st] || st)}</span>`;
+      const acts = el.querySelector(".acts");
+      const add = (txt, cls, fn) => { const b = document.createElement("button"); b.className = "link " + cls; b.textContent = txt; b.onclick = fn; acts.appendChild(b); };
+      if(ACTIVE.includes(st)){
+        add("تغيير الموعد", "", () => openMove(x));
+        add("إلغاء", "del", () => cancelIt(x));
+      }
+      if(FINISHED.includes(st) && !x.reviewed) add("قيّم", "", () => openRate(x));
+      $("mine").appendChild(el);
+    });
+  }catch(e){ $("mine").innerHTML = `<p class="bad">تعذّر تحميل الحجوزات (${esc(e.code)}).</p>`; }
+}
+
+async function cancelIt(x){
+  if(!confirm("تريد تلغي هذا الحجز؟")) return;
+  try{ await call("cancelBooking", { bookingId:x.id }); loadMine(); loadSlots(); }
+  catch(e){ alert(e.message); }
+}
+
+let moving = null;
+function openMove(x){ moving = x; $("mDate").value = x.date; $("mTime").value = x.time; $("mMsg").textContent = ""; $("dMove").showModal(); }
+$("fMove").onsubmit = async ev => {
+  ev.preventDefault(); $("mGo").disabled = true; $("mMsg").textContent = "";
+  try{
+    await call("rescheduleBooking", { bookingId:moving.id, date:$("mDate").value, time:$("mTime").value });
+    $("dMove").close(); loadMine(); loadSlots();
+  }catch(e){ $("mMsg").textContent = e.message; }
+  finally{ $("mGo").disabled = false; }
+};
+
+/* ---------- التقييم ---------- */
+let rating = 0, rating_for = null;
+function drawStars(){
+  $("stars").innerHTML = "";
+  for(let i = 1; i <= 5; i++){
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = "★"; b.setAttribute("aria-label", i + " من 5");
+    if(i <= rating) b.className = "on";
+    b.onclick = () => { rating = i; $("rGo").disabled = false; drawStars(); };
+    $("stars").appendChild(b);
+  }
+}
+function openRate(x){
+  rating_for = x; rating = 0; $("rText").value = ""; $("rMsg").textContent = ""; $("rGo").disabled = true;
+  $("rTitle").textContent = "قيّم " + (x.salonName || salonsById[x.salonId]?.name || "الصالون");
+  drawStars(); $("dRate").showModal();
+}
+$("fRate").onsubmit = async ev => {
+  ev.preventDefault(); $("rGo").disabled = true; $("rMsg").textContent = "";
+  try{
+    await addDoc(collection(db, "salons", rating_for.salonId, "reviews"), {
+      customerId:user.uid, customerName:user.displayName || "", bookingId:rating_for.id,
+      rating, comment:$("rText").value.trim(), createdAt:serverTimestamp()
+    });
+    $("dRate").close(); rating_for.reviewed = true; loadMine();
+  }catch(e){ $("rMsg").textContent = e.code === "permission-denied" ? "ما تقدر تقيّم هذا الحجز." : "تعذّر إرسال التقييم."; $("rGo").disabled = false; }
+};
+</script>
+</body>
+</html>
