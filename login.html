@@ -1,42 +1,132 @@
-<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>تسجيل الدخول — موعد أنوثة</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تسجيل الدخول — الموعد</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#FBF5F7;--card:#fff;--ink:#2A1722;--mute:#7A6571;--line:#EBDCE3;--ac:#B83A6B;--ac2:#8E2A52;--soft:#F8E3EC;--bad:#C0392B;padding-top:env(safe-area-inset-top,0px)}
-@media(prefers-color-scheme:dark){:root{--bg:#1A1017;--card:#26171F;--ink:#F6E9EF;--mute:#B79DAA;--line:#3A2630;--ac:#E26C9A;--ac2:#C94F80;--soft:#3A2230;--bad:#F0776A}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:400 14px Cairo,Tahoma,Arial,sans-serif}
-main{max-width:420px;margin:auto;padding:32px 16px}h1{font-size:20px;font-weight:800;color:var(--ac);margin:0 0 4px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-top:16px}
-label{display:block;margin:12px 0 4px;font-weight:600}input{width:100%;min-height:44px;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--bg);color:var(--ink);font:400 14px Cairo,Tahoma,sans-serif}
-button{min-height:44px;width:100%;margin-top:16px;border:0;border-radius:12px;background:var(--ac);color:#fff;font:600 14px Cairo,Tahoma,sans-serif;cursor:pointer}button:disabled{opacity:.5}
-.err{background:var(--soft);color:var(--bad);padding:12px;border-radius:12px;margin-top:12px}.m{color:var(--mute);font-size:12.5px}
-</style></head><body><main><h1>موعد أنوثة</h1><p class="m">دخول صاحبة الصالون والموظفة والإدارة</p>
-<form class="card" id="f"><label for="u">اسم المستخدم</label><input id="u" dir="ltr" autocomplete="username" autocapitalize="none" required>
-<label for="p">كلمة السر</label><input id="p" type="password" dir="ltr" autocomplete="current-password" required>
-<div class="err" id="e" hidden></div><button id="b">دخول</button></form>
-<p class="m">نسيتِ كلمة السر؟ تواصلي مع الإدارة، فهي التي تغيّرها.</p></main>
+:root{--bg:#eef3f4;--ink:#10222b;--mut:#5b6f78;--line:#cfdadd;--acc:#0e7c86;--acc2:#e8a33d;--card:#fff;--err:#b3261e}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1a20;--ink:#e8f0f2;--mut:#8fa5ad;--line:#26404a;--card:#132830;--acc:#3fb6c1}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:"IBM Plex Sans Arabic",Tahoma,sans-serif;background:var(--bg);color:var(--ink);display:grid;place-items:center;padding:16px}
+.box{width:100%;max-width:400px}
+h1{font-size:2.6rem;margin:0 0 4px;font-weight:700;letter-spacing:-.5px}
+h1 span{display:inline-block;width:.45em;height:.45em;background:var(--acc2);border-radius:50%;margin-inline-start:.15em}
+.sub{color:var(--mut);margin:0 0 24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+.tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.tabs button{flex:1;background:none;border:0;padding:10px;font:inherit;color:var(--mut);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tabs button[aria-selected=true]{color:var(--ink);font-weight:600;border-color:var(--acc)}
+label{display:block;font-size:.9rem;margin:12px 0 4px}
+input{width:100%;padding:11px 12px;font:inherit;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px}
+input:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.go{width:100%;margin-top:18px;padding:12px;font:inherit;font-weight:600;background:var(--acc);color:#fff;border:0;border-radius:8px;cursor:pointer}
+.go:disabled{opacity:.6}
+.msg{min-height:1.4em;margin:12px 0 0;color:var(--err);font-size:.9rem}
+.hide{display:none}
+</style>
+</head>
+<body>
+<main class="box">
+  <h1>الموعد<span></span></h1>
+  <p class="sub">احجز موعدك بدقيقة.</p>
+  <div class="card">
+    <div class="tabs" role="tablist">
+      <button id="tIn" role="tab" aria-selected="true">دخول</button>
+      <button id="tUp" role="tab" aria-selected="false">حساب جديد</button>
+    </div>
+    <div id="nameRow" class="hide"><label for="name">الاسم</label><input id="name" autocomplete="name"></div>
+    <label for="phone">رقم الهاتف</label><input id="phone" type="tel" inputmode="numeric" placeholder="07XXXXXXXXX" autocomplete="username" dir="ltr">
+    <label for="pass">كلمة المرور</label><input id="pass" type="password" autocomplete="current-password" dir="ltr">
+    <button class="go" id="go">دخول</button>
+    <p class="msg" id="msg" role="alert"></p>
+  </div>
+</main>
+
 <script type="module">
-import { configured, auth, db } from './js/fb.js';
-import { usernameToEmail, homeFor, authErrorMessage, lockState, afterFailure } from './js/login-logic.js';
-const $ = (i) => document.getElementById(i), show = (m) => { $('e').hidden = !m; $('e').textContent = m || ''; };
-if (!configured) show('لم تُضبط إعدادات Firebase بعد (public/js/firebase-config.js).');
-$('f').addEventListener('submit', async (ev) => {
-  ev.preventDefault(); show(''); if (!configured) return;
-  const name = $('u').value.trim().toLowerCase(), key = 'lk_' + name, now = Date.now();
-  let rec = null; try { rec = JSON.parse(localStorage.getItem(key)); } catch (e) {}
-  const st = lockState(rec, now); if (st.locked) return show(`تم إيقاف المحاولات مؤقتًا. حاولي بعد ${st.left} دقيقة.`);
-  let email; try { email = usernameToEmail(name); } catch (e) { return show('اسم المستخدم: حروف إنجليزية صغيرة وأرقام فقط.'); }
-  $('b').disabled = true;
-  try {
-    const { signInWithEmailAndPassword, signOut } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
-    const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
-    const cred = await signInWithEmailAndPassword(auth, email, $('p').value);
-    const snap = await getDoc(doc(db, 'users', cred.user.uid)), u = snap.exists() ? snap.data() : null, home = u && u.status === 'active' ? homeFor(u.role) : null;
-    if (!home) { await signOut(auth); return show('هذا الحساب غير مفعّل أو بلا صلاحية. تواصلي مع الإدارة.'); }
-    try { localStorage.removeItem(key); } catch (e) {}
-    location.replace(home);
-  } catch (e) {
-    try { localStorage.setItem(key, JSON.stringify(afterFailure(rec, now))); } catch (x) {}
-    show(authErrorMessage(e.code));
-  } finally { $('b').disabled = false; }
-});
-</script></body></html>
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+// الصق إعدادات مشروعك هنا (Firebase Console > Project settings > Your apps)
+const firebaseConfig = { apiKey:"", authDomain:"", projectId:"moaed-unotha-prod", appId:"" };
+
+const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app);
+const $ = id => document.getElementById(id);
+let mode = "in", pending = null;
+
+function setMode(m){
+  mode = m;
+  $("tIn").setAttribute("aria-selected", m==="in");
+  $("tUp").setAttribute("aria-selected", m==="up");
+  $("nameRow").classList.toggle("hide", m==="in");
+  $("go").textContent = m==="in" ? "دخول" : "إنشاء الحساب";
+  $("pass").autocomplete = m==="in" ? "current-password" : "new-password";
+  $("msg").textContent = "";
+}
+$("tIn").onclick = () => setMode("in");
+$("tUp").onclick = () => setMode("up");
+
+const errors = {
+  "auth/invalid-credential":"الرقم أو كلمة المرور غلط.",
+  "auth/invalid-email":"الرقم غير صحيح.",
+  "auth/email-already-in-use":"هذا الرقم مسجّل. جرّب الدخول.",
+  "auth/weak-password":"كلمة المرور قصيرة. استعمل 6 أحرف أو أكثر.",
+  "auth/too-many-requests":"محاولات كثيرة. انتظر شوي وأعد المحاولة.",
+  "auth/network-request-failed":"ما في اتصال بالإنترنت."
+};
+
+// الدخول بالرقم: نحوّله لبريد داخلي ثابت لأن Firebase يحتاج بريد مع كلمة المرور. الزبون ما يشوفه.
+const DOMAIN = "@phone.moaed.app";
+const phoneOf = u => (u.email || "").replace(DOMAIN, "");
+function normPhone(v){
+  let d = v.replace(/[٠-٩]/g, c => "٠١٢٣٤٥٦٧٨٩".indexOf(c)).replace(/\D/g, "");
+  if(d.startsWith("964")) d = "0" + d.slice(3);
+  else if(/^7\d{9}$/.test(d)) d = "0" + d;
+  return /^07\d{9}$/.test(d) ? d : null;
+}
+
+// الصفحة حسب دور الحساب. عدّل أسماء الملفات إذا عندك واجهات ثانية.
+const pages = { customer:"customer.html" };
+
+async function route(user){
+  const ref = doc(db, "users", user.uid);
+  let snap = await getDoc(ref);
+  if(!snap.exists()){
+    // حساب جديد: نسجّله زبون. إذا القواعد تمنع هذي الكتابة من المتصفح، انقلها لدالة.
+    await setDoc(ref, { name:pending?.name || user.displayName || "", phone:pending?.phone || phoneOf(user), role:"customer", createdAt:serverTimestamp() });
+    snap = await getDoc(ref);
+  }
+  const page = pages[snap.data().role];
+  if(page) location.replace(page);
+  else { $("msg").textContent = "هذا الحساب ليس حساب زبون."; $("go").disabled = false; }
+}
+
+$("go").onclick = async () => {
+  $("msg").textContent = "";
+  const phone = normPhone($("phone").value), pass = $("pass").value, name = $("name").value.trim();
+  if(!phone){ $("msg").textContent = "اكتب رقم هاتف عراقي صحيح، مثل 07701234567."; return; }
+  if(!pass){ $("msg").textContent = "اكتب كلمة المرور."; return; }
+  if(mode==="up" && !name){ $("msg").textContent = "اكتب اسمك."; return; }
+  const email = phone + DOMAIN;
+  $("go").disabled = true;
+  try{
+    if(mode==="up"){
+      pending = { name, phone };
+      const c = await createUserWithEmailAndPassword(auth, email, pass);
+      await updateProfile(c.user, { displayName:name });
+    } else {
+      await signInWithEmailAndPassword(auth, email, pass);
+    }
+  }catch(e){
+    $("msg").textContent = errors[e.code] || "صار خطأ: " + e.code;
+    $("go").disabled = false;
+  }
+};
+
+onAuthStateChanged(auth, u => { if(u) route(u).catch(e => { $("msg").textContent = "تعذّر قراءة الحساب: " + e.code; $("go").disabled=false; }); });
+</script>
+</body>
+</html>
